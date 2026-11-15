@@ -58,6 +58,12 @@ SKY = "/World/sky"
 SUN_ROTATE = (-50.0, 20.0, 30.0)  # our sun's default, where the scenario places none
 # Renders after a preload: the first compiles the world's materials, the rest settle it.
 PRELOAD_RENDERS = 5
+# The preload's throwaway ego warms its sensors until they deliver, up to this many frames
+# (aib's default is 60): on a cold shader cache Town01's materials compile on the sensors'
+# first renders for minutes, and 60 frames (8.5 s) left that to the scenario's ego, whose
+# spawn then outran the bridge's 120 s wait (csb roadmap 077, G37). The world server's own
+# start-up limit bounds it.
+PRELOAD_WARM_FRAMES = 1200
 # A handle the server never gives out (they start at 1): the preload's throwaway ego.
 WARM_UP_HANDLE = 0
 ENVIRONMENT = "/World/env"
@@ -769,7 +775,8 @@ class IsaacWorld(WorldBase):
                 self.world.step(render=True)
                 ego.after_substep(self.physx, self.dt)
 
-            frames = ego.warm_up(warm_step)
+            frames = ego.warm_up(warm_step, **({"frames": PRELOAD_WARM_FRAMES}
+                                               if handle == WARM_UP_HANDLE else {}))
             if self.record and self.recorder is None and handle != WARM_UP_HANDLE:
                 from .recorder import Recorder
 
