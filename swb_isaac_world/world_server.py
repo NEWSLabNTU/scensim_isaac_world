@@ -25,18 +25,26 @@ import argparse
 import logging
 import os
 import sys
-import threading
 import time
 
 from . import names
 
-# A world server that cannot go on exits with this (EX_TEMPFAIL, as swb_carla_world's): its
-# launch respawns it fresh. docs/issues/011: one stopped answering after RTX's "Out of
-# resource descriptors!", another sat in Kit's start for 16 minutes; neither exited.
-EXIT_FRESH = 75
+# A world server that cannot go on ends, for its launch to respawn it fresh (docs/issues/011:
+# one stopped answering after RTX's "Out of resource descriptors!", another sat in Kit's start
+# for 16 minutes; neither exited). Both guards are the request-deadline child process's
+# (`swb_world_server.watchdog`, roadmap 077 G70), started before Kit, which ends this process
+# from outside: Kit's start and the preload are a block with STARTUP_LIMIT as its deadline,
+# and the child watches Kit's log file for a FATAL line (KIT_FATAL). Nothing runs in this
+# process for either: a Python omni.log consumer took the GIL for every Kit message, and a
+# PhysX cooking task logging from a worker thread waited for it while the main thread, which
+# held it, waited for the task (csb issue 042); a timer here needs the GIL too, so it cannot
+# watch a thread that holds the GIL.
+#
 # Kit's start, the worlds' preload and their first renders, s: a cold Town01 takes about 7
 # minutes; isaac_up.sh waits 30 (ISAAC_READY_TIMEOUT) for an answer.
 STARTUP_LIMIT = 1200.0
+# What marks a FATAL message in Kit's log file: `<time> [<ms>] [Fatal] [<channel>] <message>`.
+KIT_FATAL = "] [Fatal] ["
 
 
 def world_file(entry):
@@ -71,30 +79,15 @@ def preload_list(worlds):
     return usds
 
 
-def exit_fresh(log, why):
-    """Leave now, for a fresh process (`EXIT_FRESH`): logs flushed, no clean-up, which a
-    wedged renderer would hang in."""
-    log.error("%s: exiting for a fresh world server", why)
-    for h in logging.getLogger().handlers:
-        h.flush()
-    sys.stdout.flush()
-    os._exit(EXIT_FRESH)
+def kit_log_file():
+    """The file Kit's own logger writes (its `/log/file` setting, tokens resolved), or None."""
+    import carb.settings
+    import carb.tokens
 
-
-def startup_watchdog(seconds, on_timeout):
-    """A started timer calling `on_timeout` unless cancelled within `seconds`."""
-    timer = threading.Timer(seconds, on_timeout)
-    timer.daemon = True
-    timer.start()
-    return timer
-
-
-def fatal_consumer(on_fatal):
-    """An omni.log message consumer calling `on_fatal(channel, message)` for a FATAL one."""
-    def consume(channel, level, module, filename, func, line, msg, *rest):
-        if getattr(level, "name", level) == "FATAL":
-            on_fatal(channel, msg)
-    return consume
+    path = carb.settings.get_settings().get("/log/file")
+    if not path:
+        return None
+    return carb.tokens.get_tokens_interface().resolve(str(path)) or str(path)
 
 
 def main(argv=None):
@@ -174,8 +167,13 @@ def main(argv=None):
     else:
         os.environ.pop("DISPLAY", None)
     started = time.monotonic()
-    watchdog = startup_watchdog(STARTUP_LIMIT, lambda: exit_fresh(
-        log, f"not up after {STARTUP_LIMIT:.0f} s (Kit's start and the preload)"))
+    from swb_world_server.watchdog import StepWatchdog
+
+    # Before Kit: Kit's start and the preload are watched from outside this process (issue
+    # 042), and the same child then holds the requests' deadlines (`run`).
+    watchdog = StepWatchdog()
+    startup = watchdog.step("Kit's start and the preload", deadline=STARTUP_LIMIT)
+    startup.__enter__()
     from isaacsim import SimulationApp
 
     # Kit uploads a crash's minidump to NVIDIA by default: kept on disk only (its dumpDir).
@@ -189,11 +187,15 @@ def main(argv=None):
         config.update(hide_ui=True, width=854, height=480, window_width=1920,
                       window_height=1080)
     app = SimulationApp(config)
-    import omni.log
-
-    # Kept referenced: the consumer lives as long as its handle.
-    fatal_watch = omni.log.get_log().add_message_consumer(fatal_consumer(  # noqa: F841
-        lambda channel, msg: exit_fresh(log, f"Kit fatal from {channel}: {msg}")))
+    kit_log = kit_log_file()
+    if kit_log:
+        if not os.path.exists(kit_log):
+            log.warning("Kit's log %s does not exist (yet): watched all the same", kit_log)
+        watchdog.watch_log(kit_log, KIT_FATAL)
+        log.info("Kit's log %s: a FATAL line in it ends this world server", kit_log)
+    else:
+        log.warning("Kit names no log file (/log/file): a Kit FATAL does not end this world "
+                    "server")
 
     from .world import IsaacWorld
 
@@ -206,11 +208,11 @@ def main(argv=None):
     # The first listed is preloaded last, so it is the one loaded when the bridge first asks.
     for usd in reversed(preload):
         world.preload(usd)
-    watchdog.cancel()
+    startup.__exit__(None, None, None)
     log.info("Isaac Sim %s up in %.1f s, physics at %g Hz", world.isaac_version,
              time.monotonic() - started, 1 / world.max_physics_dt)
     try:
-        run(world, socket, should_stop=lambda: not app.is_running())
+        run(world, socket, should_stop=lambda: not app.is_running(), watchdog=watchdog)
     finally:
         app.close()
 
