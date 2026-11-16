@@ -123,7 +123,13 @@ def add_props(stage, course, m, c, work, rng):
     # (issue 020): <isaac dir>/carla-usd -> $CARLA_USD, referenced as ./carla-usd/<asset>.
     # A copy without the link (a dataset) loads too: the world server gives it a stand-in
     # directory with the link to SWB_CARLA_USD (`names.staged_world`).
-    root = os.path.realpath(os.environ.get("CARLA_USD", "/mnt/disk1/carla-usd"))
+    # no default set (roadmap 077 G75): the stack's SWB_CARLA_USD, else CARLA_USD (the order
+    # isaac_town.sh takes them in)
+    root = os.environ.get("SWB_CARLA_USD") or os.environ.get("CARLA_USD")
+    if not root:
+        raise RuntimeError("a course's props need the CARLA USD set: set CARLA_USD (or "
+                           "SWB_CARLA_USD, which a project's stack sets)")
+    root = os.path.realpath(root)
     link = os.path.join(os.path.dirname(stage.GetRootLayer().realPath), LINK)
     if os.path.islink(link) or os.path.exists(link):
         os.remove(link)

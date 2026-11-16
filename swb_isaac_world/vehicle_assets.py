@@ -2,7 +2,7 @@
 
 The assets are CARLA 0.9.16's vehicle blueprints exported with NVIDIA's SimReady converter
 (CARLA's editor, one level per blueprint, `-run=SimReadyExport`), one directory per
-blueprint id under `SWB_VEHICLE_USD` (default `/mnt/disk1/carla-usd/vehicles`), indexed by
+blueprint id under `SWB_VEHICLE_USD` (no default: unset, every entity is a box), indexed by
 its `vehicles.json` (paths relative to it; the set's layout and how to obtain or make
 it: docs/design/isaac-assets.md):
 
@@ -35,7 +35,6 @@ from pathlib import Path
 
 log = logging.getLogger("swb_isaac_world")
 
-DEFAULT_ROOT = "/mnt/disk1/carla-usd/vehicles"
 # vehicle.py's PhysX wheel prims -> the export's wheel names
 PHYSX_WHEELS = {"frontLeft": "Wheel_Front_Left", "frontRight": "Wheel_Front_Right",
                 "rearLeft": "Wheel_Rear_Left", "rearRight": "Wheel_Rear_Right"}
@@ -64,9 +63,15 @@ class VehicleAssets:
     """The exported bodies by CARLA blueprint id; empty (every entity a box) without them."""
 
     def __init__(self, root=None):
-        self.root = Path(root or os.environ.get("SWB_VEHICLE_USD", DEFAULT_ROOT))
-        index = self.root / "vehicles.json"
+        root = root or os.environ.get("SWB_VEHICLE_USD", "")
+        # no default root (roadmap 077 G75): unset, no bodies; Path("") would be the cwd
+        self.root = Path(root) if root else None
+        index = self.root / "vehicles.json" if root else None
         self.by_id = {}
+        self.physics_by_id, self.props, self.walkers = {}, {}, []
+        if index is None:
+            log.info("no CARLA vehicle bodies (SWB_VEHICLE_USD is not set): entities are boxes")
+            return
         if index.exists():
             self.by_id = {e["id"]: e for e in load_index(index)}
             log.info("%d CARLA vehicle bodies from %s", len(self.by_id), index)

@@ -3,7 +3,7 @@
 # Kit's caches default to ~/.cache/ov, ~/.local/share/ov and ~/.nvidia-omniverse; on this host
 # they are symlinks into ISAAC_ROOT so the shader cache stays off /home. Then: pip install pyzmq.
 set -eu
-I=${ISAAC_ROOT:-/mnt/disk1/isaac-sim}
+I=${ISAAC_ROOT:?ISAAC_ROOT is not set: where to install Isaac Sim 6.1 (a fast disk with ~60 GB free)}
 export UV_CACHE_DIR=$I/uv-cache
 # A cache symlink whose target is gone (an ISAAC_ROOT deleted and reinstalled) hangs Kit at
 # start: omni.client loops on mkdir (EEXIST) and stat (ENOENT) at 100 % CPU, silently.

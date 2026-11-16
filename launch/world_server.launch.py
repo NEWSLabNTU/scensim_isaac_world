@@ -48,6 +48,24 @@ def _number(text, kind):
         return None
 
 
+# What scripts/install_isaac.sh makes under ISAAC_ROOT, and isaac_env.sh checks (077 G75)
+ISAAC_INSTALL = ("venv/bin/activate", "venv/lib/python3.12/site-packages/isaacsim")
+
+
+def isaac_root_problems(environ):
+    """ISAAC_ROOT unset, or not an Isaac Sim install: isaac_env.sh's refusals, as messages."""
+    root = environ.get("ISAAC_ROOT", "")
+    if not root:
+        return ["ISAAC_ROOT is not set: it names Isaac Sim 6.1's pip install "
+                "(scripts/install_isaac.sh); set isaac.root in ~/.config/swb/host.yaml, or "
+                "export ISAAC_ROOT"]
+    for need in ISAAC_INSTALL:
+        if not os.path.exists(os.path.join(root, need)):
+            return [f"ISAAC_ROOT={root} is not an Isaac Sim install: no {root}/{need} "
+                    "(scripts/install_isaac.sh makes it)"]
+    return []
+
+
 def problems(var, environ):
     """What the world server would refuse in these arguments (`var`, name -> value) and this
     environment, as messages; empty when nothing is. Only what is cheap and sure to check:
@@ -63,6 +81,7 @@ def problems(var, environ):
         v = environ.get(env, "")
         if v and _number(v, int) is None:
             out.append(f"{env}={v} is not a whole number")
+    out += isaac_root_problems(environ)
     display = environ.get("DISPLAY", "")
     if var["render"] == "window" and not display.strip():
         out.append("render:=window needs DISPLAY (Isaac's window), and DISPLAY is "

@@ -15,7 +15,7 @@
 #   physics:=true   write <Town>_physics.usda again even if it exists (an export does too)
 #
 # Host paths from the environment: CARLA_SRC (the editor build with SimReady, for an export),
-# SWB_CARLA_USD or CARLA_USD (the CARLA USD set, default /mnt/disk1/carla-usd), ISAAC_ROOT.
+# SWB_CARLA_USD or CARLA_USD (the CARLA USD set; required), ISAAC_ROOT.
 set -euo pipefail
 
 usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -31,8 +31,8 @@ for a in "$@"; do
         *) echo "isaac_town: unknown argument '$a' (map_path:=, export:=, physics:=)" >&2; exit 2 ;;
     esac
 done
-export CARLA_SRC=${CARLA_SRC:-/mnt/disk1/carla-src}
-export SWB_CARLA_USD=${SWB_CARLA_USD:-${CARLA_USD:-/mnt/disk1/carla-usd}}
+export CARLA_SRC=${CARLA_SRC:?CARLA_SRC is not set: the CARLA 0.9.16 editor build}
+export SWB_CARLA_USD=${SWB_CARLA_USD:-${CARLA_USD:?CARLA_USD is not set: the CARLA USD set to write into}}
 if [ -z "$map_path" ]; then
     for m in "$town" "${town%HD}"; do
         if [ -n "${CARLA_MAPS:-}" ] && [ -d "$CARLA_MAPS/$m" ]; then
@@ -47,7 +47,7 @@ if [ "$force" = true ] || [ ! -f "$SWB_CARLA_USD/$town/$town.usd" ]; then
 fi
 [ "$physics" = true ] && args+=(--physics)
 
-export ISAAC_ROOT=${ISAAC_ROOT:-/mnt/disk1/isaac-sim}
+export ISAAC_ROOT=${ISAAC_ROOT:?ISAAC_ROOT is not set: the Isaac Sim 6.1 pip install (scripts/install_isaac.sh)}
 set +u
 source "$here/scripts/isaac_env.sh"
 set -u

@@ -2,7 +2,7 @@
 # (the Python shell) and autoware_isaac_bridge (the ego), are submodules under deps/
 # (git submodule update --init --recursive). ISAAC_ROOT: the Isaac Sim 6.1 pip install.
 
-isaac_root := env_var_or_default('ISAAC_ROOT', '/mnt/disk1/isaac-sim')
+isaac_root := env_var_or_default('ISAAC_ROOT', '')  # no default (077 G75): set it in the environment
 
 default:
     @just --list

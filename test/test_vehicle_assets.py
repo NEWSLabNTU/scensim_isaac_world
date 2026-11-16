@@ -99,3 +99,16 @@ class RelocatedSetTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoDefaultRoot(unittest.TestCase):
+    def test_unset_is_no_bodies_not_a_lab_path(self):
+        """077 G75: no SWB_VEHICLE_USD means no bodies (every entity a box), not a host path."""
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SWB_VEHICLE_USD", None)
+            a = vehicle_assets.VehicleAssets()
+        self.assertIsNone(a.root)
+        self.assertEqual((a.by_id, a.props, a.walkers, a.physics_by_id), ({}, {}, [], {}))
+        self.assertIsNone(a.get("vehicle.mini.cooper_s_2021"))

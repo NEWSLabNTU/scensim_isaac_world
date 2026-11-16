@@ -18,7 +18,7 @@ CARLA USD set, relative for one inside the map directory, absolute otherwise. `m
 runs this, and the export and the physics layer before it.
 
     python -m swb_isaac_world.usd_world data/carla-autoware-bridge/Town01 \\
-        /mnt/disk1/carla-usd/Town01/Town01_physics.usda
+        <the CARLA USD set>/Town01/Town01_physics.usda
 """
 import argparse
 import os

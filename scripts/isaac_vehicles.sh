@@ -21,11 +21,11 @@
 #                   again, their riders seated with that grip (vehicle_usd_assets.py)
 #
 # Host paths from the environment:
-#   CARLA_SRC        CARLA 0.9.16 editor build with SimReady (default /mnt/disk1/carla-src),
+#   CARLA_SRC        CARLA 0.9.16 editor build with SimReady (required),
 #                    with an env.sh exporting UE4_ROOT and CARLA_ROOT (roadmap 043, "A new host")
-#   SWB_VEHICLE_USD  the output, one directory per blueprint id (default
-#                    /mnt/disk1/carla-usd/vehicles); logs in its logs/
-#   ISAAC_ROOT       Isaac Sim's install, for pxr (isaac_env.sh; default /mnt/disk1/isaac-sim)
+#   SWB_VEHICLE_USD  the output, one directory per blueprint id (required);
+#                    logs in its logs/
+#   ISAAC_ROOT       Isaac Sim's install, for pxr (isaac_env.sh; required)
 #
 # Three steps, each skipped when its output is there:
 #   1. levels: the UE editor (commandlet, ue_vehicle_levels.py) saves one level per blueprint,
@@ -56,8 +56,8 @@ for a in "$@"; do
         *) echo "isaac_vehicles: unknown argument '$a' (only:=, export:=, props:=, walkers:=, riders:=)" >&2; exit 2 ;;
     esac
 done
-CARLA_SRC=${CARLA_SRC:-/mnt/disk1/carla-src}
-root=${SWB_VEHICLE_USD:-/mnt/disk1/carla-usd/vehicles}
+CARLA_SRC=${CARLA_SRC:?CARLA_SRC is not set: the CARLA 0.9.16 editor build}
+root=${SWB_VEHICLE_USD:?SWB_VEHICLE_USD is not set: the vehicle set to write into}
 vehicles_root=$root
 kind=vehicles
 if [ "$props" = true ]; then root="$root/props"; kind=props; fi
@@ -195,7 +195,7 @@ if [ ${#todo[@]} -gt 0 ]; then
 fi
 
 # 3. assets
-export ISAAC_ROOT=${ISAAC_ROOT:-/mnt/disk1/isaac-sim}
+export ISAAC_ROOT=${ISAAC_ROOT:?ISAAC_ROOT is not set: the Isaac Sim 6.1 pip install (scripts/install_isaac.sh)}
 set +u
 source "$here/scripts/isaac_env.sh"
 set -u

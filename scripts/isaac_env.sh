@@ -4,6 +4,22 @@
 # by both repositories) -- plus aib's Python package on PYTHONPATH, which the world server
 # imports for its ego, and the world server shell (`swb_world_server`). Do not source the system Humble into it. RMW_IMPLEMENTATION and
 # CYCLONEDDS_URI pass through, so the stack's DDS settings apply.
+# ISAAC_ROOT has no default (roadmap 077 G75): a fresh host's install is wherever it was put.
+# What counts as an install is what scripts/install_isaac.sh makes: the venv and Isaac Sim in it.
+if [ -z "${ISAAC_ROOT:-}" ]; then
+    echo "isaac_env.sh: ISAAC_ROOT is not set: it names Isaac Sim 6.1's pip install" \
+         "(scripts/install_isaac.sh); set isaac.root in ~/.config/swb/host.yaml, or export ISAAC_ROOT" >&2
+    return 2 2>/dev/null || exit 2
+fi
+for _swb_need in venv/bin/activate venv/lib/python3.12/site-packages/isaacsim; do
+    if [ ! -e "$ISAAC_ROOT/$_swb_need" ]; then
+        echo "isaac_env.sh: ISAAC_ROOT=$ISAAC_ROOT is not an Isaac Sim install: no" \
+             "$ISAAC_ROOT/$_swb_need (scripts/install_isaac.sh makes it)" >&2
+        unset _swb_need
+        return 2 2>/dev/null || exit 2
+    fi
+done
+unset _swb_need
 _swb_aib="$(cd "$(dirname "${BASH_SOURCE[0]}")/../deps/autoware_isaac_bridge/src/aib" && pwd)" || {
     echo "isaac_env.sh: no aib at deps/autoware_isaac_bridge (git submodule update --init --recursive)" >&2
     return 1 2>/dev/null || exit 1

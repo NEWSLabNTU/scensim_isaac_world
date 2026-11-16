@@ -17,7 +17,7 @@ roadmap 051 it was `src/isaac_world` in that repository.
 ## Build and run
 
 Prerequisites: Isaac Sim 6.1 installed with pip into a venv (`scripts/install_isaac.sh`;
-`ISAAC_ROOT`, default `/mnt/disk1/isaac-sim`) and ROS 2 Humble.
+`ISAAC_ROOT`, required: there is no default) and ROS 2 Humble.
 
 ```bash
 git submodule update --init --recursive   # deps/swb_world_protocol, deps/autoware_isaac_bridge

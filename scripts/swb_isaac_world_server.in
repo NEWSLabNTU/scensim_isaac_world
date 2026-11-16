@@ -77,10 +77,11 @@ unset PYTHONPATH PYTHONHOME LD_LIBRARY_PATH AMENT_PREFIX_PATH CMAKE_PREFIX_PATH 
     COLCON_PREFIX_PATH PKG_CONFIG_PATH ROS_PACKAGE_PATH ROS_LOCALHOST_ONLY ROS_VERSION \
     ROS_PYTHON_VERSION VIRTUAL_ENV
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/opt/ros/\|^/opt/autoware/\|/install/' | paste -sd:)
-export ISAAC_ROOT="${ISAAC_ROOT:-/mnt/disk1/isaac-sim}"
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+# ISAAC_ROOT: no default; isaac_env.sh refuses it unset or not an install (exit 2, a usage
+# error: the launch ends instead of respawning, issue 044)
 # shellcheck source=/dev/null
-source "$swb_isaac_world/scripts/isaac_env.sh"
+source "$swb_isaac_world/scripts/isaac_env.sh" || exit 2
 cd "$swb_isaac_world"
 echo "swb_isaac_world_server: python -m swb_isaac_world.world_server ${args[*]}"
 exec python -u -m swb_isaac_world.world_server "${args[@]}"

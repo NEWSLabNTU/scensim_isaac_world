@@ -23,11 +23,37 @@ def load():
 
 @unittest.skipUnless(HAVE_LAUNCH, "no ROS 2 launch (source /opt/ros/humble/setup.bash)")
 class LaunchRefusals(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.isaac = Path(self._tmp.name) / "isaac-sim"  # what install_isaac.sh makes
+        (self.isaac / "venv" / "bin").mkdir(parents=True)
+        (self.isaac / "venv" / "bin" / "activate").write_text("")
+        (self.isaac / "venv/lib/python3.12/site-packages/isaacsim").mkdir(parents=True)
+
     def ok(self, m, **kw):
         var = dict(m.ARGS)
         var.update({k: v for k, v in kw.items() if k in m.ARGS})
-        env = {k: v for k, v in kw.items() if k not in m.ARGS}
+        env = {"ISAAC_ROOT": str(self.isaac)}
+        env.update({k: v for k, v in kw.items() if k not in m.ARGS})
         return m.problems(var, env)
+
+    def test_isaac_root_has_no_default_and_must_be_an_install(self):
+        """077 G75: unset ISAAC_ROOT is refused (no lab default), and so is a root without
+        install_isaac.sh's venv and Isaac Sim in it."""
+        m = load()
+        got = self.ok(m, ISAAC_ROOT="")
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("ISAAC_ROOT is not set", got[0])
+        self.assertIn("isaac.root in ~/.config/swb/host.yaml", got[0])
+        empty = Path(self._tmp.name) / "empty"
+        empty.mkdir()
+        got = self.ok(m, ISAAC_ROOT=str(empty))
+        self.assertIn(f"ISAAC_ROOT={empty} is not an Isaac Sim install: no "
+                      f"{empty}/venv/bin/activate", got[0])
+        (self.isaac / "venv/lib/python3.12/site-packages/isaacsim").rmdir()
+        self.assertIn("site-packages/isaacsim", self.ok(m)[0])
 
     def test_a_window_needs_a_display(self):
         m = load()
@@ -100,3 +126,26 @@ class LaunchRefusals(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IsaacEnvRefusals(unittest.TestCase):
+    """scripts/isaac_env.sh, which the world server's and the entry points' wrappers source:
+    no ISAAC_ROOT default (077 G75), exit 2 on an unset root or one that is not an install."""
+
+    def source(self, root):
+        import subprocess
+        script = PATH.parents[1] / "scripts" / "isaac_env.sh"
+        env = {"PATH": "/usr/bin:/bin", "ISAAC_ROOT": root}
+        return subprocess.run(["bash", "-c", f'source "{script}" || exit $?'], env=env,
+                              capture_output=True, text=True)
+
+    def test_unset_and_not_an_install_are_refused(self):
+        import tempfile
+        r = self.source("")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("ISAAC_ROOT is not set", r.stderr)
+        with tempfile.TemporaryDirectory() as d:
+            r = self.source(d)
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertIn(f"ISAAC_ROOT={d} is not an Isaac Sim install: no {d}/venv/bin/activate",
+                          r.stderr)

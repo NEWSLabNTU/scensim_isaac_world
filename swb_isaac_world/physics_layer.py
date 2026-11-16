@@ -29,7 +29,7 @@ Left without a collider:
 
 The layer is the file the Isaac world names (`swb_isaac_world.usd_world`).
 
-    python -m swb_isaac_world.physics_layer /mnt/disk1/carla-usd/Town02/Town02.usd
+    python -m swb_isaac_world.physics_layer $CARLA_USD/Town02/Town02.usd
 """
 import argparse
 import os

@@ -7,7 +7,7 @@ import traceback
 
 import unreal
 
-OUT = os.environ.get("SWB_PHYS_OUT", "/mnt/disk1/csb-043-vehicle/ue/ue_physics.json")
+OUT = os.environ["SWB_PHYS_OUT"]   # where to write ue_physics.json (no default, 077 G75)
 ONLY = [s for s in os.environ.get("SWB_VEH_ONLY", "").split(",") if s]
 
 

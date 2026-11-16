@@ -7,7 +7,7 @@ catalogue's `vehicles.json`, reads `get_physics_control()` and writes it into th
 Y flipped). Also writes `physics.json` beside it (blueprint id -> physics):
 `vehicle_usd_assets.py` regenerates `vehicles.json` without it, and `vehicle_assets.py` falls back to the sidecar.
 
-    dump_vehicle_physics.py [--root /mnt/disk1/carla-usd/vehicles] [--host H] [--port 2000]
+    dump_vehicle_physics.py [--root <SWB_VEHICLE_USD>] [--host H] [--port 2000]
                             [--only vehicle.tesla.model3,...]
 
 What CARLA gives, and what it means here:
@@ -37,6 +37,7 @@ then `--port 3000`; 41 vehicles take seconds) and kill that one by pid afterward
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -122,7 +123,8 @@ def destroy(world, actor):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--root", default="/mnt/disk1/carla-usd/vehicles")
+    usd = os.environ.get("SWB_VEHICLE_USD")   # no default root (077 G75)
+    ap.add_argument("--root", default=usd, required=not usd)
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=2000)
     ap.add_argument("--only", default="", help="comma-separated blueprint ids")
