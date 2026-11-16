@@ -92,5 +92,18 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(expired, ["Kit's start and the preload"])
 
 
+class RefusalTest(unittest.TestCase):
+    """044: the world server's refusals before Kit exit 2, on which its launch ends."""
+
+    def test_a_missing_world_is_refused_with_exit_2(self):
+        with self.assertRaises(SystemExit) as cm:
+            world_server.preload_list("/nonexistent/world.usda")
+        self.assertEqual(cm.exception.code, world_server.EXIT_USAGE)
+
+    def test_every_refusal_before_kit_is_a_usage_exit(self):
+        main = SOURCE[SOURCE.index("def world_usd("):SOURCE.index("from isaacsim import")]
+        self.assertNotIn("raise SystemExit(", main)
+
+
 if __name__ == "__main__":
     unittest.main()

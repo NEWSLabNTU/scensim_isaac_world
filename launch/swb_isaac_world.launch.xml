@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   The Isaac Sim world server the bridge drives under sim:=isaac (roadmaps 037, 038, 043), supervised:
-  respawned when it dies, its output in the launch's log directory. Long-lived like the
+  respawned when it dies (but not on a usage error, exit 2: the launch ends; issue 044), its output in the launch's log directory. Long-lived like the
   simulation side: start it once, before `isaac_simulation.launch.xml` and the
   ego's stack (the ego's /clock comes from here).
 
@@ -47,9 +47,17 @@
   <arg name="wheels_topic" default="true"
        description="true: publish /swb/wheels on the ego's domain (diagnostic_msgs/DiagnosticArray, one status per ego wheel: class, zone, friction, slip_ratio, slip_angle, sinkage, normal_load; 20 Hz of sim time)"/>
 
-  <!-- respawn_delay is a literal (stock ros2 launch rejects a substitution there). 10 s
-       lets the dead server's GPU memory and port go before the next one claims them. -->
-  <node pkg="swb_isaac_world" exec="swb_isaac_world_server" name="swb_isaac_world" output="screen"
-        respawn="true" respawn_delay="10.0"
-        args="--port $(env ISAAC_PORT 5590) --ego $(var ego) --ego-domain $(env EGO_ROS_DOMAIN_ID 1) --world $(var world) --follow $(var follow) --render $(var render) --record=$(var record) --record-view $(var record_view) --physics-hz $(var physics_hz) --state-dir=$(var state_dir) --wheels-topic $(var wheels_topic)"/>
+  <!-- The node, its DISPLAY check before it starts, and the end of the launch on its usage
+       error (exit 2) instead of a respawn loop: world_server.launch.py (csb issue 044). -->
+  <include file="$(find-pkg-share swb_isaac_world)/launch/world_server.launch.py">
+    <arg name="ego" value="$(var ego)"/>
+    <arg name="world" value="$(var world)"/>
+    <arg name="follow" value="$(var follow)"/>
+    <arg name="record" value="$(var record)"/>
+    <arg name="record_view" value="$(var record_view)"/>
+    <arg name="render" value="$(var render)"/>
+    <arg name="physics_hz" value="$(var physics_hz)"/>
+    <arg name="state_dir" value="$(var state_dir)"/>
+    <arg name="wheels_topic" value="$(var wheels_topic)"/>
+  </include>
 </launch>

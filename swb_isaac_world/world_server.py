@@ -47,6 +47,21 @@ STARTUP_LIMIT = 1200.0
 KIT_FATAL = "] [Fatal] ["
 # s after Kit's start by which Kit's log must exist, or the world server logs an ERROR.
 KIT_LOG_GRACE = 60.0
+# A refused configuration (argparse's own exit too): its launch shuts down on it instead of
+# respawning the world server to be refused again (csb issue 044).
+EXIT_USAGE = 2
+
+
+class Refused(SystemExit):
+    """`raise Refused(message)`: the message on stderr, exit EXIT_USAGE."""
+
+    def __init__(self, message):
+        print(f"swb_isaac_world: {message}", file=sys.stderr, flush=True)
+        super().__init__(EXIT_USAGE)
+        self.message = message
+
+    def __str__(self):
+        return self.message
 
 
 def world_file(entry):
@@ -65,9 +80,9 @@ def world_usd(entry):
             return os.path.abspath(names.expand(entry))
         usd = names.world_usd_of(path)
     except names.UnresolvedName as e:
-        raise SystemExit(str(e)) from e
+        raise Refused(str(e)) from e
     if not usd:
-        raise SystemExit(f"{entry}: the world file names no usd (a flat ground plane needs no "
+        raise Refused(f"{entry}: the world file names no usd (a flat ground plane needs no "
                          "preload)")
     return usd
 
@@ -77,7 +92,7 @@ def preload_list(worlds):
     usds = list(dict.fromkeys(world_usd(e.strip()) for e in worlds.split(",") if e.strip()))
     missing = [u for u in usds if not os.path.exists(u)]
     if missing:
-        raise SystemExit(f"world(s) not found: {', '.join(missing)}")
+        raise Refused(f"world(s) not found: {', '.join(missing)}")
     return usds
 
 
@@ -138,7 +153,7 @@ def main(argv=None):
                          "state, DiagnosticArray, 20 Hz) on the ego's domain")
     args = ap.parse_args(argv)
     if not args.physics_hz > 0:
-        raise SystemExit(f"--physics-hz {args.physics_hz}: a rate > 0")
+        raise Refused(f"--physics-hz {args.physics_hz}: a rate > 0")
     from swb_world_server import lifetime
     from swb_world_server.server import bind, run
 
@@ -158,7 +173,7 @@ def main(argv=None):
         surface_maps = register([w for w in map(world_file, entries) if w],
                                 state_dir=args.state_dir or None)
     except SurfaceError as e:
-        raise SystemExit(f"surface map refused:\n{e}") from e
+        raise Refused(f"surface map refused:\n{e}") from e
     for usd, files in surface_maps.items():
         log.info("surface map %s for %s%s%s", files.surfaces, usd,
                  "" if os.path.exists(files.surfaces) else
