@@ -43,6 +43,11 @@ class GuardTest(unittest.TestCase):
         self.assertIn("watchdog.watch_log(kit_log, KIT_FATAL)", main)
         self.assertIn("watchdog=watchdog)", main[main.index("run(world, socket"):])
         self.assertEqual(world_server.STARTUP_LIMIT, 1200.0)
+        # a Kit log still missing after the preload (and KIT_LOG_GRACE) is an ERROR
+        after = main[main.index("startup.__exit__("):main.index("run(world, socket")]
+        self.assertIn("log.error(", after)
+        self.assertIn("KIT_LOG_GRACE", after)
+        self.assertEqual(world_server.KIT_LOG_GRACE, 60.0)
 
     def test_a_kit_fatal_line_ends_the_world_server_and_others_do_not(self):
         """011: a FATAL message in Kit's log (as Kit writes its file) ends the world server."""

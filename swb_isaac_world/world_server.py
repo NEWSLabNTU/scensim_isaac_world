@@ -45,6 +45,8 @@ from . import names
 STARTUP_LIMIT = 1200.0
 # What marks a FATAL message in Kit's log file: `<time> [<ms>] [Fatal] [<channel>] <message>`.
 KIT_FATAL = "] [Fatal] ["
+# s after Kit's start by which Kit's log must exist, or the world server logs an ERROR.
+KIT_LOG_GRACE = 60.0
 
 
 def world_file(entry):
@@ -209,6 +211,17 @@ def main(argv=None):
     for usd in reversed(preload):
         world.preload(usd)
     startup.__exit__(None, None, None)
+    # Kit opens its log at its start: one still missing now, at least 60 s on (KIT_LOG_GRACE),
+    # means the child watches a file that never appears and a Kit FATAL ends nothing (042's
+    # review: a token in /log/file could resolve to another name than Kit's file). Checked
+    # here, not by a timer, which the GIL could hold up.
+    if kit_log:
+        wait = KIT_LOG_GRACE - (time.monotonic() - started)
+        if wait > 0 and not os.path.exists(kit_log):
+            time.sleep(wait)
+        if not os.path.exists(kit_log):
+            log.error("Kit's log %s does not exist %.0f s after Kit's start: a Kit FATAL does "
+                      "not end this world server", kit_log, time.monotonic() - started)
     log.info("Isaac Sim %s up in %.1f s, physics at %g Hz", world.isaac_version,
              time.monotonic() - started, 1 / world.max_physics_dt)
     try:
