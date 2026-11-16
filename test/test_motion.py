@@ -53,5 +53,25 @@ class MotionTest(unittest.TestCase):
         self.assertEqual(motion.skids((0, 0, 0.1), (0.2, 0.2, 0.2))[2], [])
 
 
+class BuryPoints(unittest.TestCase):
+    """Despawned entities' last points (issue 040): never two at one place."""
+
+    def test_points_are_distinct_and_far_apart(self):
+        pts = [motion.bury_point(i) for i in range(200)]
+        self.assertEqual(len(set(pts)), len(pts))
+        for i, a in enumerate(pts):
+            for b in pts[i + 1:]:
+                self.assertGreaterEqual(math.dist(a, b), motion.BURY_SPACING - 1e-9)
+
+    def test_points_are_under_the_world_and_stable(self):
+        self.assertEqual(motion.bury_point(0), (0.0, 0.0, motion.BURY_Z))
+        self.assertEqual(motion.bury_point(33), motion.bury_point(33))
+        self.assertTrue(all(motion.bury_point(i)[2] == motion.BURY_Z for i in range(70)))
+
+    def test_negative_index_refused(self):
+        with self.assertRaises(ValueError):
+            motion.bury_point(-1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -103,3 +103,22 @@ def skids(center, dims, radius=SKID_RADIUS):
     y = width / 2 - r - 0.05
     caps = [((cx, cy + side * y, bottom + r), half_height, r) for side in (1, -1)]
     return box_center, box_dims, caps
+
+
+# Where despawned entities spend their last step before deletion (`World.despawn`, `_bury`):
+# under the world, out of the RTX lidar's view (044 step 7). Each at its own point, BURY_SPACING
+# apart in a grid of BURY_ROW, so no two overlap: a world reload despawns every entity at once,
+# and a walker and two barriers buried together at one point, with PhysX's kinematic-kinematic
+# pair reports on, hung PhysX's next step (issue 040: "Resolving contacts between two kinematic
+# objects is invalid", then a step that never returned).
+BURY_Z = -1000.0  # m
+BURY_SPACING = 100.0  # m: far more than any entity's box
+BURY_ROW = 32
+
+
+def bury_point(index):
+    """The `index`-th buried entity's point (x, y, z), m: a grid under the world, every
+    point BURY_SPACING from its neighbours, the same for the same index."""
+    if index < 0:
+        raise ValueError(f"bury index {index} < 0")
+    return ((index % BURY_ROW) * BURY_SPACING, (index // BURY_ROW) * BURY_SPACING, BURY_Z)

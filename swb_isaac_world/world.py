@@ -73,8 +73,9 @@ GROUND_PLANE = "/World/defaultGroundPlane"
 # over the frame's substeps; a body held back by a contact is held by the contact, not this.
 TRACKED_MATERIAL = "/World/Looks/csbTrackedBody"
 TRACKED_FRICTION = float(os.environ.get("SWB_TRACKED_FRICTION", "0.1"))
-# Where a despawned entity spends its last step (`despawn`), m.
-BURY_Z = -1000.0
+# Where a despawned entity spends its last step (`despawn`): a point of its own under the
+# world, `body_motion.bury_point` (issue 040).
+BURY_Z = body_motion.BURY_Z
 # The PhysX step that hands a structural stage edit over between frames, s (`_egos_keep_motion`).
 FLUSH_STEP = 1e-6
 # Traffic signals (roadmap 044 B): the lamps' bulbs in a CARLA town's SimReady export, by
@@ -1073,11 +1074,16 @@ class IsaacWorld(WorldBase):
             # pose (cameras and PhysX queries do not see it): Autoware saw every despawned
             # NPC and prop as an obstacle for the rest of the world server's life (044 step
             # 7). So it goes under the world (kinematic, if it was tracked) for one step, and
-            # is deleted after it (`_bury`).
+            # is deleted after it (`_bury`). Each buried entity at its own point, with its
+            # colliders off: a reload buries every entity in one step, and a walker and two
+            # barriers buried at one point hung PhysX's next step (issue 040, "Resolving
+            # contacts between two kinematic objects is invalid").
+            prim = self.stage.GetPrimAtPath(path)
+            self._colliders_off(prim)
             if handle in self.tracked:
                 self._to_kinematic(handle, path)
-            translate.Set(Gf.Vec3d(0.0, 0.0, BURY_Z))
-            UsdGeom.Imageable(self.stage.GetPrimAtPath(path)).MakeInvisible()
+            translate.Set(Gf.Vec3d(*body_motion.bury_point(len(self.buried))))
+            UsdGeom.Imageable(prim).MakeInvisible()
             self.buried.append(path)
             return
         self.fresh.discard(handle)
@@ -1110,6 +1116,14 @@ class IsaacWorld(WorldBase):
             ops[0].Set(Gf.Vec3d(x, y, dz))
             ops[1].Set(Gf.Vec3f(roll, pitch, 0.0))
             self.sunk[handle] = max(self.sunk.get(handle, 0.0), -dz)
+
+    @staticmethod
+    def _colliders_off(prim):
+        """Every collider at or under `prim` stops colliding (issue 040): a body on its way
+        out of the world takes part in no contact pair, kinematic or not."""
+        for p in Usd.PrimRange(prim):
+            if p.HasAPI(UsdPhysics.CollisionAPI):
+                UsdPhysics.CollisionAPI(p).CreateCollisionEnabledAttr(False)
 
     def _bury(self):
         """Delete the entities `despawn` moved under the world, now that a step has moved
