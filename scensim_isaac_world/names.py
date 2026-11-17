@@ -1,4 +1,4 @@
-"""Names, not paths (scenario-world-bridge roadmap 076 A9): where a world's files are, and
+"""Names, not paths (scensim roadmap 076 A9): where a world's files are, and
 where the world server writes. Pure Python, no Isaac.
 
 **Names in a world file.** A world file's `usd:` (`<map>/isaac/world.yaml`) may name its stage

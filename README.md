@@ -1,7 +1,7 @@
 # scensim_isaac_world
 
 [Isaac Sim](https://developer.nvidia.com/isaac/sim) 6.1 behind the world protocol of
-[scenario-world-bridge](https://github.com/NEWSLabNTU/scenario-world-bridge) (scensim): the Isaac
+[scensim](https://github.com/NEWSLabNTU/scensim): the Isaac
 **world server**. It loads a world (CARLA's towns exported to USD, or a map's point cloud as
 voxels), spawns and steps the scenario's vehicles, people and props in PhysX, sets traffic
 lights, the scenario's weather and time of day as sky, fog and rain, and road surfaces
@@ -10,8 +10,8 @@ lights, the scenario's weather and time of day as sky, fog and rain, and road su
 process.
 
 It is Python, built on the protocol's Python shell (`scensim_world_server`, from
-[scensim_world_protocol](https://github.com/NEWSLabNTU/swb_world_protocol)), and runs in Isaac's
-own Python (3.12) and ROS 2 libraries (`scripts/isaac_env.sh`). Until scenario-world-bridge's
+[scensim_world_protocol](https://github.com/NEWSLabNTU/scensim_world_protocol)), and runs in Isaac's
+own Python (3.12) and ROS 2 libraries (`scripts/isaac_env.sh`). Until scensim's
 roadmap 051 it was `src/isaac_world` in that repository.
 
 ## Build and run
@@ -20,7 +20,7 @@ Prerequisites: Isaac Sim 6.1 installed with pip into a venv (`scripts/install_is
 `ISAAC_ROOT`, required: there is no default) and ROS 2 Humble.
 
 ```bash
-git submodule update --init --recursive   # deps/swb_world_protocol, deps/autoware_isaac_bridge
+git submodule update --init --recursive   # deps/scensim_world_protocol, deps/autoware_isaac_bridge
 just msgs                                 # once per Isaac install: Autoware's messages for Isaac's Python
 just build                                # the ROS package: the launch node wrapper, launch file, config
 just test                                 # the pure modules (pxr and warp tests skip outside Isaac's Python)

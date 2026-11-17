@@ -7,7 +7,7 @@ the wheel's sinkage is in the picture, and a chase camera behind and above the c
 keeps the car and each ground it crosses in view (a run over several zones). The chase camera turns
 with the car, so a drift does not show in it; the course camera does: it is not under the body
 but placed after every frame behind the car along its velocity, so a car sliding sideways shows
-its side to it by its sideslip angle (scenario-world-bridge docs/issues/019). Another stands still beside the first soil zone ahead
+its side to it by its sideslip angle (scensim docs/issues/019). Another stands still beside the first soil zone ahead
 of the ego at its spawn, past the zone's far end, looking back along the ego's line: the
 render mesh shows a tile's ruts only once the wheels are 3 m past it (`soil_tiles`), so they
 appear behind the car, which the wheel camera never sees. Every frame the world server
@@ -47,7 +47,7 @@ CHASE_AT = (3.0, 0.0, 0.3)
 CHASE_FOV = 60.0
 # The views (`--record-view`): the pictures' size and the chase camera (eye and look-at point in
 # base_link, horizontal FOV). `offroad`, the default, is the above. `road` is the chase that
-# scenario-world-bridge roadmaps 059 and 072 agreed for the NTU twin (parity P6), so that CARLA's
+# scensim roadmaps 059 and 072 agreed for the NTU twin (parity P6), so that CARLA's
 # and Isaac's videos frame the car alike: 7 m behind the rear axle, 3.4 m up, on the car's
 # centreline, pitched 15 deg down, 80 deg, 1280 x 720.
 _P = math.radians(15.0)
@@ -115,7 +115,7 @@ class Recorder:
         w, h = self.size
         dash_rig = rig.sensors.get("camera6")
         # The pictures expose as the ego's camera does: RTX's auto-exposure when its rig (or the
-        # ego config) asks for it (aib's `auto_exposure`, scenario-world-bridge roadmap 059),
+        # ego config) asks for it (aib's `auto_exposure`, scensim roadmap 059),
         # a fixed exposure otherwise.
         auto_exposure = bool(dash_rig and dash_rig.extra.get("auto_exposure"))
 
@@ -233,7 +233,7 @@ class Recorder:
         """Step (physics and a render) until every camera delivers a picture: a render
         product's first renders set up its RTX pipeline, 0.5 s on an idle host and 20-34 s on a
         loaded one, which belong in the ego's Spawn rather than in the first Step (the bridge
-        gives a Step 10 s; docs/issues/016 in scenario-world-bridge). The frames' pictures
+        gives a Step 10 s; docs/issues/016 in scensim). The frames' pictures
         are not recorded."""
         for i in range(frames):
             step()

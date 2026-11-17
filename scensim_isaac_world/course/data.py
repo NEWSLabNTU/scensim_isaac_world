@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 
-USER_AGENT = "swb-course/0.1 (scenario-world-bridge roadmap 058)"
+USER_AGENT = "scensim-course/0.1 (scensim roadmap 058)"  # curl -A, the course downloads
 OVERPASS = "https://overpass-api.de/api/interpreter"
 GSI = "https://cyberjapandata.gsi.go.jp/xyz/{layer}/{z}/{x}/{y}.{ext}"
 

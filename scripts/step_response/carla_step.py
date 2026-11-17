@@ -15,7 +15,7 @@ import carla
 sys.path.insert(0, str(Path(__file__).parent))
 from step_common import DT, TESTS, command  # noqa: E402
 
-# The car's pedal maps (autoware_sim_vehicle's, beside this in a scenario-world-bridge checkout)
+# The car's pedal maps (autoware_sim_vehicle's, beside this in a scensim checkout)
 ACB = (Path(__file__).resolve().parents[3] / "autoware_sim_vehicle/cars/tesla_model3/"
        "tesla_model3_description/config")
 OUT = Path(sys.argv[1])

@@ -29,6 +29,6 @@ _scensim_aib="$(cd "$(dirname "${BASH_SOURCE[0]}")/../deps/autoware_isaac_bridge
 # shellcheck source=/dev/null
 source "$_scensim_aib/scripts/isaac_env.sh"
 # The world protocol's server shell (roadmap 046), beside this package.
-_scensim_shell="$(cd "$(dirname "${BASH_SOURCE[0]}")/../deps/swb_world_protocol/scensim_world_server" && pwd)"
+_scensim_shell="$(cd "$(dirname "${BASH_SOURCE[0]}")/../deps/scensim_world_protocol/scensim_world_server" && pwd)"
 export PYTHONPATH="$_scensim_shell:$_scensim_aib:$PYTHONPATH"
 unset _scensim_aib _scensim_shell

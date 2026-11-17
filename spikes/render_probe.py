@@ -1,6 +1,6 @@
 """Render a stage headless, frame by frame: does this host's GPU driver survive it?
 
-scenario-world-bridge issue 005.
+scensim issue 005.
 
     spikes/run_spike.sh cyclonedds <log> spikes/render_probe.py <usd | simple> [frames]
 

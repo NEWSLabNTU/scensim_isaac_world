@@ -15,7 +15,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[1]))
-sys.path.insert(0, str(HERE.parents[1] / "deps" / "swb_world_protocol" / "scensim_world_server"))
+sys.path.insert(0, str(HERE.parents[1] / "deps" / "scensim_world_protocol" / "scensim_world_server"))
 from scensim_isaac_world import world_server  # noqa: E402
 from scensim_world_server import watchdog  # noqa: E402
 

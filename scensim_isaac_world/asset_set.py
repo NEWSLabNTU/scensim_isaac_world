@@ -71,11 +71,11 @@ def readme(root, scensim_commit):
     return f"""# CARLA 0.9.16 assets for Isaac Sim
 
 CARLA 0.9.16's content exported from its UE 4.26 editor with NVIDIA's SimReady converter and
-wrapped for scenario-world-bridge's Isaac backend. Layout, use and how it is made:
-`docs/design/isaac-assets.md` in scenario-world-bridge. CARLA's assets are CC-BY 4.0
+wrapped for scensim's Isaac backend. Layout, use and how it is made:
+`docs/design/isaac-assets.md` in scensim. CARLA's assets are CC-BY 4.0
 (carla-simulator/carla's content licence).
 
-- Manifest written: {datetime.date.today().isoformat()}, scenario-world-bridge {scensim_commit}
+- Manifest written: {datetime.date.today().isoformat()}, scensim {scensim_commit}
 - Towns: {', '.join(towns) or 'none'}
 - Vehicles: {count('vehicles/vehicles.json')} (`vehicles/vehicles.json`)
 - Props: {count('vehicles/props/props.json')} (`vehicles/props/props.json`)

@@ -21,7 +21,7 @@ TIMEOUT = 600             # s, simulated
 
 XOSC = """<?xml version="1.0"?>
 <OpenSCENARIO>
-\t<FileHeader author="scensim_isaac_world.course" date="2026-10-29T00:00:00+00:00" description="{title}: {run_desc} in drift_mustang, Autoware driving (scenario-world-bridge roadmap 058)" revMajor="1" revMinor="2" />
+\t<FileHeader author="scensim_isaac_world.course" date="2026-10-29T00:00:00+00:00" description="{title}: {run_desc} in drift_mustang, Autoware driving (scensim roadmap 058)" revMajor="1" revMinor="2" />
 \t<ParameterDeclarations />
 \t<CatalogLocations><VehicleCatalog><Directory path="$(find-pkg-share sim_vehicle_spec)/catalogs" /></VehicleCatalog></CatalogLocations>
 \t<RoadNetwork>
