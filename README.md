@@ -49,7 +49,9 @@ Host settings come from the environment: `ISAAC_PORT` (the REP port on 127.0.0.1
 `SCENSIM_CARLA_USD` (the CARLA USD set's root; `CARLA_USD` is read when it is not set),
 `SCENSIM_ISAAC_DIR` (a developer's source tree to run instead of the installed package;
 unset, the wrappers run the package under their own prefix and find the protocol's shell,
-aib, sim_vehicle_spec and sim_vehicle_ecu in the prefixes the launch ran under).
+aib, sim_vehicle_spec and sim_vehicle_ecu in the prefixes the launch ran under; one no
+prefix has, as aib on a simulation-only host's source build, comes from this checkout's
+`deps/` while the install is where it was built, never in a relocated install).
 
 ### Names, not paths
 

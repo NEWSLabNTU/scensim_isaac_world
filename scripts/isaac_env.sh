@@ -32,6 +32,7 @@ if [ -d "$_scensim_here/../scensim_isaac_world" ]; then
     }
     # shellcheck source=/dev/null
     source "$_scensim_aib/scripts/isaac_env.sh"
+    export SCENSIM_AIB_CONFIG="$_scensim_aib/config"
     # The world protocol's server shell (roadmap 046), beside this package.
     _scensim_shell="$(cd "$_scensim_here/../deps/scensim_world_protocol/scensim_world_server" && pwd)"
     export PYTHONPATH="$_scensim_shell:$_scensim_aib:$PYTHONPATH"
@@ -47,14 +48,48 @@ else
              "SCENSIM_ISAAC_DIR to a source tree)" >&2
         return 2 2>/dev/null || exit 2
     fi
+    # A package no prefix has falls back to the source tree this was built from (its deps/,
+    # which colcon does not build), when this still runs from the prefix it was installed to:
+    # a source build on a simulation-only host, whose autoware_isaac_bridge is not checked out.
+    # A relocated install (a tarball) never does.
+    _scensim_tree=""
+    _scensim_prefix="$(cd "$_scensim_here/../../.." && pwd -P)"
+    if [ -f "$_scensim_here/../built_from" ]; then
+        _scensim_src="$(sed -n 's/^SCENSIM_BUILT_SOURCE=//p' "$_scensim_here/../built_from")"
+        _scensim_built="$(sed -n 's/^SCENSIM_BUILT_PREFIX=//p' "$_scensim_here/../built_from")"
+        if [ -d "$_scensim_built" ] && [ "$(cd "$_scensim_built" && pwd -P)" = "$_scensim_prefix" ] \
+                && [ -d "$_scensim_src/deps" ]; then
+            _scensim_tree="$_scensim_src"
+        fi
+        unset _scensim_src _scensim_built
+    fi
+    # module -> its directory (the one holding the package) in that tree
+    _scensim_fallback() {
+        [ -n "$_scensim_tree" ] || return 1
+        local d
+        case "$1" in
+            scensim_world_server) d="$_scensim_tree/deps/scensim_world_protocol/scensim_world_server" ;;
+            aib) d="$_scensim_tree/deps/autoware_isaac_bridge/src/aib" ;;
+            sim_vehicle_spec) d="$_scensim_tree/deps/autoware_isaac_bridge/deps/sim_vehicle_spec" ;;
+            sim_vehicle_ecu) d="$_scensim_tree/deps/autoware_isaac_bridge/deps/sim_vehicle_ecu" ;;
+            *) return 1 ;;
+        esac
+        [ -d "$d/$1" ] && echo "$d"
+    }
     _scensim_aib_env=""
     _scensim_py=""
     IFS=: read -r -a _scensim_prefixes <<< "$SCENSIM_PREFIX_PATH"
     for _scensim_p in "${_scensim_prefixes[@]}"; do
-        if [ -z "$_scensim_aib_env" ] && [ -f "$_scensim_p/share/aib/scripts/isaac_env.sh" ]; then
+        if [ -f "$_scensim_p/share/aib/scripts/isaac_env.sh" ]; then
             _scensim_aib_env="$_scensim_p/share/aib/scripts/isaac_env.sh"
+            export SCENSIM_AIB_CONFIG="$_scensim_p/share/aib/config"
+            break
         fi
     done
+    if [ -z "$_scensim_aib_env" ] && _scensim_d="$(_scensim_fallback aib)"; then
+        _scensim_aib_env="$_scensim_d/scripts/isaac_env.sh"
+        export SCENSIM_AIB_CONFIG="$_scensim_d/config"
+    fi
     if [ -z "$_scensim_aib_env" ]; then
         echo "isaac_env.sh: no aib (the Isaac ego; share/aib/scripts/isaac_env.sh) in the sourced" \
              "prefixes. From source: git submodule update --init src/autoware_isaac_bridge, then" \
@@ -74,6 +109,7 @@ else
                 if [ -d "$_scensim_d/$_scensim_m" ]; then _scensim_found="$_scensim_d"; break 2; fi
             done
         done
+        [ -n "$_scensim_found" ] || _scensim_found="$(_scensim_fallback "$_scensim_m")" || true
         if [ -z "$_scensim_found" ]; then
             echo "isaac_env.sh: no Python package $_scensim_m in the sourced prefixes'" \
                  "site-packages or dist-packages: colcon build its package (or install the" \
@@ -84,6 +120,8 @@ else
     done
     export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH}$_scensim_py"
     PYTHONPATH="${PYTHONPATH#:}"
-    unset _scensim_aib_env _scensim_py _scensim_prefixes _scensim_p _scensim_m _scensim_found _scensim_d
+    unset -f _scensim_fallback
+    unset _scensim_aib_env _scensim_py _scensim_prefixes _scensim_p _scensim_m _scensim_found \
+        _scensim_d _scensim_tree _scensim_prefix
 fi
 unset _scensim_here

@@ -28,16 +28,6 @@ if [ -n "${SCENSIM_ISAAC_DIR:-}" ]; then
 else
     isaac_env="$(cd "$(dirname "$0")/../.." && pwd)/share/scensim_isaac_world/scripts/isaac_env.sh"
 fi
-# aib's ego.yaml, the --ego default: the tree's, or the first prefix's share/aib/config/
-if [ -n "${SCENSIM_ISAAC_DIR:-}" ]; then
-    aib_ego="$SCENSIM_ISAAC_DIR/deps/autoware_isaac_bridge/src/aib/config/ego.yaml"
-else
-    aib_ego=""
-    IFS=: read -r -a prefixes <<< "$SCENSIM_PREFIX_PATH"
-    for p in "${prefixes[@]}"; do
-        if [ -f "$p/share/aib/config/ego.yaml" ]; then aib_ego="$p/share/aib/config/ego.yaml"; break; fi
-    done
-fi
 port=5590; ego=default; ego_domain=0; world=none; follow=false; render=auto; record=""; record_view=offroad; physics_hz=60
 state_dir=""; wheels_topic=true
 while [ $# -gt 0 ]; do
@@ -60,10 +50,8 @@ done
 
 args=(--port "$port")
 case "$ego" in
-    default)
-        [ -n "$aib_ego" ] || { echo "scensim_isaac_world_server: --ego default is aib's" \
-            "config/ego.yaml, and no prefix has share/aib/config/ego.yaml" >&2; exit 2; }
-        args+=(--ego "$aib_ego") ;;
+    # aib's config/ego.yaml, from wherever isaac_env.sh finds aib (SCENSIM_AIB_CONFIG, below)
+    default) ego_default=1 ;;
     none|"") ;;
     *) args+=(--ego "$ego") ;;
 esac
@@ -102,6 +90,12 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 # error: the launch ends instead of respawning, issue 044)
 # shellcheck source=/dev/null
 source "$isaac_env" || exit 2
+if [ -n "${ego_default:-}" ]; then
+    [ -f "${SCENSIM_AIB_CONFIG:-}/ego.yaml" ] || {
+        echo "scensim_isaac_world_server: --ego default is aib's config/ego.yaml: none at" \
+             "${SCENSIM_AIB_CONFIG:-<no aib config>}" >&2; exit 2; }
+    args=(--ego "$SCENSIM_AIB_CONFIG/ego.yaml" "${args[@]}")
+fi
 # a source tree's package from its root (python -m puts the working directory first)
 [ -n "${SCENSIM_ISAAC_DIR:-}" ] && cd "$SCENSIM_ISAAC_DIR"
 echo "scensim_isaac_world_server: python -m scensim_isaac_world.world_server ${args[*]}"

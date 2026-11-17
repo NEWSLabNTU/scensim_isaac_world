@@ -9,6 +9,13 @@ find_package(ament_cmake_python REQUIRED)
 # scripts run it from there in Isaac's Python; SCENSIM_ISAAC_DIR (a source tree) overrides it
 # for a developer.
 ament_python_install_package(${PROJECT_NAME})
+# Where this was built from and installed to: a source build on a simulation-only host has no
+# aib (or sim_vehicle_ecu) in any prefix (autoware_isaac_bridge is the vehicle side's, and this
+# tree's deps/ are COLCON_IGNOREd), so isaac_env.sh falls back to this tree's deps/ -- only
+# while it runs from this prefix: a relocated install (a tarball) never reads the source tree.
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/built_from
+     "SCENSIM_BUILT_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}\nSCENSIM_BUILT_PREFIX=${CMAKE_INSTALL_PREFIX}\n")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/built_from DESTINATION share/${PROJECT_NAME})
 # isaac_env.sh (and renamed_env.sh, which it sources), for the scripts below
 install(PROGRAMS scripts/isaac_env.sh scripts/renamed_env.sh
         DESTINATION share/${PROJECT_NAME}/scripts)
