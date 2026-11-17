@@ -105,7 +105,7 @@ def sim_only(tmp_path_factory):
     return ws, ws / "install"
 
 
-def isaac_probe(prefix, mods):
+def isaac_probe(prefix, mods, env_sh=None):
     """As scensim_isaac_world_server does it, up to its `python -m`: AMENT_PREFIX_PATH kept,
     the system ROS environment dropped, the installed isaac_env.sh sourced; then each of
     ``mods`` imported, its file printed, and where aib's config was found."""
@@ -118,8 +118,8 @@ def isaac_probe(prefix, mods):
                  "export SCENSIM_PREFIX_PATH=\"$AMENT_PREFIX_PATH\" && "
                  "unset PYTHONPATH PYTHONHOME LD_LIBRARY_PATH AMENT_PREFIX_PATH CMAKE_PREFIX_PATH "
                  "COLCON_PREFIX_PATH ROS_VERSION ROS_PYTHON_VERSION VIRTUAL_ENV && "
-                 f"source {prefix}/share/scensim_isaac_world/scripts/isaac_env.sh && "
-                 f"python -c {shlex.quote(probe)}")
+                 f"source {env_sh or prefix / 'share/scensim_isaac_world/scripts/isaac_env.sh'}"
+                 f" && python -c {shlex.quote(probe)}")
 
 
 def clean(script, cwd="/"):
@@ -207,3 +207,32 @@ def test_a_relocated_install_never_reads_the_tree_it_was_built_from(sim_only, tm
               f"source {moved}/share/scensim_isaac_world/scripts/isaac_env.sh")
     assert r.returncode != 0
     assert "isaac_env.sh: no aib (the Isaac ego" in r.stderr, r.stderr
+
+
+@NEEDS_ISAAC
+def test_a_symlink_install_finds_each_package_through_its_egg_link(tmp_path):
+    """243: our docs build with --symlink-install. There isaac_env.sh is a per-file link into
+    the source (its directory is not), so the installed branch still runs; and ament_python
+    packages (the shell, aib) install as develop egg-links, no package directory, which the
+    lookup follows. A full checkout's isolated build: aib from its own package."""
+    ws = tmp_path / "ws"
+    shutil.copytree(REPO, ws / "src" / "scensim_isaac_world", ignore=SKIP_KEEP_DEPS)
+    for name in ("scensim_world_server", "aib", "sim_vehicle_spec"):
+        shutil.copytree(SOURCES[name], ws / "src" / name, ignore=SKIP)
+    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
+           "PATH": f"{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"}
+    r = subprocess.run(["bash", "-c", f"source {ROS} && colcon build --symlink-install"],
+                       cwd=ws, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout[-4000:] + r.stderr[-4000:]
+    env_sh = ws / "install/scensim_isaac_world/share/scensim_isaac_world/scripts/isaac_env.sh"
+    assert env_sh.is_symlink()
+    assert list((ws / "install/aib").glob("lib/python3*/site-packages/*.egg-link"))
+    mods = ["scensim_isaac_world.world_server", "scensim_world_server.server", "aib.rig"]
+    r = isaac_probe(ws / "install", mods, env_sh=env_sh)
+    assert r.returncode == 0, r.stdout + r.stderr
+    files = dict(line.split(" ", 1) for line in r.stdout.splitlines())
+    # the shell and aib from their own packages (build/<pkg>, linked to src/<pkg>), not from
+    # scensim_isaac_world's deps/: the installed branch, not the source tree's
+    assert "/deps/" not in files["scensim_world_server.server"], files
+    assert "/deps/" not in files["aib.rig"], files
+    assert files["aib_config"] == str(ws / "install/aib/share/aib/config")

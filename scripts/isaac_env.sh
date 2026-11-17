@@ -92,8 +92,9 @@ else
     fi
     if [ -z "$_scensim_aib_env" ]; then
         echo "isaac_env.sh: no aib (the Isaac ego; share/aib/scripts/isaac_env.sh) in the sourced" \
-             "prefixes. From source: git submodule update --init src/autoware_isaac_bridge, then" \
-             "colcon build and source install/setup.bash. From a release: install its Isaac" \
+             "prefixes. From source: git submodule update --init --recursive src/scensim_isaac_world" \
+             "(its deps/ carry aib), then colcon build and source install/setup.bash. From a" \
+             "release: install its Isaac" \
              "part, which carries aib, and source its setup.bash" >&2
         return 1 2>/dev/null || exit 1
     fi
@@ -107,6 +108,13 @@ else
                               "$_scensim_p"/local/lib/python3*/dist-packages \
                               "$_scensim_p"/lib/python3*/dist-packages; do
                 if [ -d "$_scensim_d/$_scensim_m" ]; then _scensim_found="$_scensim_d"; break 2; fi
+                # --symlink-install: ament_python installs a develop egg-link, whose first
+                # line names the directory that holds the package
+                for _scensim_l in "$_scensim_d"/*.egg-link; do
+                    [ -f "$_scensim_l" ] || continue
+                    _scensim_e="$(head -n1 "$_scensim_l")"
+                    if [ -d "$_scensim_e/$_scensim_m" ]; then _scensim_found="$_scensim_e"; break 3; fi
+                done
             done
         done
         [ -n "$_scensim_found" ] || _scensim_found="$(_scensim_fallback "$_scensim_m")" || true
@@ -122,6 +130,6 @@ else
     PYTHONPATH="${PYTHONPATH#:}"
     unset -f _scensim_fallback
     unset _scensim_aib_env _scensim_py _scensim_prefixes _scensim_p _scensim_m _scensim_found \
-        _scensim_d _scensim_tree _scensim_prefix
+        _scensim_d _scensim_l _scensim_e _scensim_tree _scensim_prefix
 fi
 unset _scensim_here
