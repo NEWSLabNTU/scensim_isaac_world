@@ -12,9 +12,11 @@
 
   <!-- What the world server imports, installed under the prefix (roadmap 082): the protocol's
        Python shell, aib (the ego; it imports sim_vehicle_spec and sim_vehicle_ecu). The
-       scripts find each in AMENT_PREFIX_PATH's site-packages, for Isaac's own Python. -->
+       scripts find each in AMENT_PREFIX_PATH's site- or dist-packages, for Isaac's own Python.
+       aib is not declared: it lives in autoware_isaac_bridge, whose aib_launch needs Autoware,
+       which a simulation-only host has not (rosdep would fail on it); found at run time,
+       refused by name when absent. -->
   <exec_depend>scensim_world_server</exec_depend>
-  <exec_depend>aib</exec_depend>
   <exec_depend>sim_vehicle_spec</exec_depend>
 
   <export>

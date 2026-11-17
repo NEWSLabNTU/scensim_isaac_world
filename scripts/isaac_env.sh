@@ -42,8 +42,9 @@ else
     # there before dropping the system ROS environment). Their site-packages go after Isaac's
     # paths, so Isaac's own ROS 2 Python (its messages) is found first.
     if [ -z "${SCENSIM_PREFIX_PATH:-}" ]; then
-        echo "isaac_env.sh: SCENSIM_PREFIX_PATH is not set: source scensim's setup.bash and run" \
-             "this through ros2 run scensim_isaac_world (or set SCENSIM_ISAAC_DIR to a source tree)" >&2
+        echo "isaac_env.sh: SCENSIM_PREFIX_PATH is not set: start it through \`scensim run\` (or" \
+             "ros2 run scensim_isaac_world) after sourcing scensim's setup.bash (or set" \
+             "SCENSIM_ISAAC_DIR to a source tree)" >&2
         return 2 2>/dev/null || exit 2
     fi
     _scensim_aib_env=""
@@ -55,8 +56,10 @@ else
         fi
     done
     if [ -z "$_scensim_aib_env" ]; then
-        echo "isaac_env.sh: no aib in SCENSIM_PREFIX_PATH (share/aib/scripts/isaac_env.sh): build or" \
-             "install aib (autoware_isaac_bridge) and source its setup.bash" >&2
+        echo "isaac_env.sh: no aib (the Isaac ego; share/aib/scripts/isaac_env.sh) in the sourced" \
+             "prefixes. From source: git submodule update --init src/autoware_isaac_bridge, then" \
+             "colcon build and source install/setup.bash. From a release: install its Isaac" \
+             "part, which carries aib, and source its setup.bash" >&2
         return 1 2>/dev/null || exit 1
     fi
     # shellcheck source=/dev/null
@@ -72,8 +75,9 @@ else
             done
         done
         if [ -z "$_scensim_found" ]; then
-            echo "isaac_env.sh: no Python package $_scensim_m in SCENSIM_PREFIX_PATH's" \
-                 "site-packages or dist-packages: build or install it and source its setup.bash" >&2
+            echo "isaac_env.sh: no Python package $_scensim_m in the sourced prefixes'" \
+                 "site-packages or dist-packages: colcon build its package (or install the" \
+                 "release part that carries it) and source its setup.bash" >&2
             return 1 2>/dev/null || exit 1
         fi
         case ":$_scensim_py:" in *":$_scensim_found:"*) ;; *) _scensim_py="$_scensim_py:$_scensim_found" ;; esac
