@@ -10,17 +10,34 @@
 # The world server is Python 3.12 in Isaac's venv with Isaac's own ROS 2 libraries
 # (scripts/isaac_env.sh); the system Humble a launch runs under must not leak
 # into it, so its paths are dropped here first. The launch's --ros-args (node name, remaps)
-# mean nothing to it and are dropped too. The ego is aib's (autoware_isaac_bridge, the
-# submodule at deps/autoware_isaac_bridge; roadmap 045): isaac_env.sh puts its package on
-# PYTHONPATH, and --ego default is its config/ego.yaml.
+# mean nothing to it and are dropped too. The ego is aib's (autoware_isaac_bridge; roadmap
+# 045): isaac_env.sh puts its package on PYTHONPATH, and --ego default is its config/ego.yaml.
 #
-# Environment: SCENSIM_ISAAC_DIR (default: the source tree this package was built from),
+# Environment: SCENSIM_ISAAC_DIR (a source tree to run instead of the installed package),
 # ISAAC_ROOT, DISPLAY (render auto/window), ISAAC_HEADLESS=1 (render auto: headless),
 # CYCLONEDDS_URI (passed through: the ego stack's DDS), SCENSIM_CARLA_USD (the CARLA USD set's
 # root, for world files that name it and course worlds' props; passed through).
 set -e
-scensim_isaac_world="${SCENSIM_ISAAC_DIR:-@SCENSIM_ISAAC_DIR@}"
-aib_ego="$scensim_isaac_world/deps/autoware_isaac_bridge/src/aib/config/ego.yaml"
+# Where the package runs from: installed (the default; roadmap 082), this script's prefix,
+# <prefix>/lib/scensim_isaac_world, or a source tree a developer names, SCENSIM_ISAAC_DIR.
+# Installed, isaac_env.sh finds aib, the shell and the vehicle packages in the prefixes the
+# launch ran under: AMENT_PREFIX_PATH, kept as SCENSIM_PREFIX_PATH before it is dropped below.
+export SCENSIM_PREFIX_PATH="${AMENT_PREFIX_PATH:-}"
+if [ -n "${SCENSIM_ISAAC_DIR:-}" ]; then
+    isaac_env="$SCENSIM_ISAAC_DIR/scripts/isaac_env.sh"
+else
+    isaac_env="$(cd "$(dirname "$0")/../.." && pwd)/share/scensim_isaac_world/scripts/isaac_env.sh"
+fi
+# aib's ego.yaml, the --ego default: the tree's, or the first prefix's share/aib/config/
+if [ -n "${SCENSIM_ISAAC_DIR:-}" ]; then
+    aib_ego="$SCENSIM_ISAAC_DIR/deps/autoware_isaac_bridge/src/aib/config/ego.yaml"
+else
+    aib_ego=""
+    IFS=: read -r -a prefixes <<< "$SCENSIM_PREFIX_PATH"
+    for p in "${prefixes[@]}"; do
+        if [ -f "$p/share/aib/config/ego.yaml" ]; then aib_ego="$p/share/aib/config/ego.yaml"; break; fi
+    done
+fi
 port=5590; ego=default; ego_domain=0; world=none; follow=false; render=auto; record=""; record_view=offroad; physics_hz=60
 state_dir=""; wheels_topic=true
 while [ $# -gt 0 ]; do
@@ -43,7 +60,10 @@ done
 
 args=(--port "$port")
 case "$ego" in
-    default) args+=(--ego "$aib_ego") ;;
+    default)
+        [ -n "$aib_ego" ] || { echo "scensim_isaac_world_server: --ego default is aib's" \
+            "config/ego.yaml, and no prefix has share/aib/config/ego.yaml" >&2; exit 2; }
+        args+=(--ego "$aib_ego") ;;
     none|"") ;;
     *) args+=(--ego "$ego") ;;
 esac
@@ -81,7 +101,8 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 # ISAAC_ROOT: no default; isaac_env.sh refuses it unset or not an install (exit 2, a usage
 # error: the launch ends instead of respawning, issue 044)
 # shellcheck source=/dev/null
-source "$scensim_isaac_world/scripts/isaac_env.sh" || exit 2
-cd "$scensim_isaac_world"
+source "$isaac_env" || exit 2
+# a source tree's package from its root (python -m puts the working directory first)
+[ -n "${SCENSIM_ISAAC_DIR:-}" ] && cd "$SCENSIM_ISAAC_DIR"
 echo "scensim_isaac_world_server: python -m scensim_isaac_world.world_server ${args[*]}"
 exec python -u -m scensim_isaac_world.world_server "${args[@]}"

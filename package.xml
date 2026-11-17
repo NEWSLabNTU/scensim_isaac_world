@@ -8,6 +8,14 @@
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <!-- What the world server imports, installed under the prefix (roadmap 082): the protocol's
+       Python shell, aib (the ego; it imports sim_vehicle_spec and sim_vehicle_ecu). The
+       scripts find each in AMENT_PREFIX_PATH's site-packages, for Isaac's own Python. -->
+  <exec_depend>scensim_world_server</exec_depend>
+  <exec_depend>aib</exec_depend>
+  <exec_depend>sim_vehicle_spec</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

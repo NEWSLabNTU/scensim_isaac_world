@@ -47,7 +47,9 @@ Host settings come from the environment: `ISAAC_PORT` (the REP port on 127.0.0.1
 5590), `EGO_ROS_DOMAIN_ID` (the ego's ROS domain, default 1, over the ego config's),
 `DISPLAY`, `ISAAC_HEADLESS`, `ISAAC_ROOT`, `CYCLONEDDS_URI` (the ego stack's DDS),
 `SCENSIM_CARLA_USD` (the CARLA USD set's root; `CARLA_USD` is read when it is not set),
-`SCENSIM_ISAAC_DIR` (the source tree the wrapper runs, default the one it was built from).
+`SCENSIM_ISAAC_DIR` (a developer's source tree to run instead of the installed package;
+unset, the wrappers run the package under their own prefix and find the protocol's shell,
+aib, sim_vehicle_spec and sim_vehicle_ecu in the prefixes the launch ran under).
 
 ### Names, not paths
 
