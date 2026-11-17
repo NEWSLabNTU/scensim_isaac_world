@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world import make_world as mw, usd_world  # noqa: E402
+from scensim_isaac_world import make_world as mw, usd_world  # noqa: E402
 
 
 class PlanTest(unittest.TestCase):
@@ -14,7 +14,7 @@ class PlanTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.set = root / "carla-usd"
-        self.env = {"SWB_CARLA_USD": str(self.set)}
+        self.env = {"SCENSIM_CARLA_USD": str(self.set)}
         self.maps = root / "maps"
         for m in ("Town01", "Town10", "Town05"):
             (self.maps / m).mkdir(parents=True)
@@ -67,7 +67,7 @@ class PlanTest(unittest.TestCase):
     def test_usd_names_the_stage(self):
         self.town("Town01")
         layer = self.set / "Town01" / "Town01_physics.usda"
-        p = self.plan("Town05", usd="${SWB_CARLA_USD}/Town01/Town01_physics.usda")
+        p = self.plan("Town05", usd="${SCENSIM_CARLA_USD}/Town01/Town01_physics.usda")
         self.assertEqual((p.town, p.layer, p.write_layer), ("Town01", str(layer), False))
         p = self.plan("Town05", usd=str(self.set / "Town01" / "Town01.usd"))
         self.assertEqual((p.layer, p.write_layer), (str(layer), False))
@@ -77,7 +77,7 @@ class PlanTest(unittest.TestCase):
     def test_no_set_and_no_usd_is_refused(self):
         with self.assertRaises(mw.MakeWorldError) as e:
             mw.plan(str(self.maps / "Town01"), env={})
-        self.assertIn("SWB_CARLA_USD", str(e.exception))
+        self.assertIn("SCENSIM_CARLA_USD", str(e.exception))
         with self.assertRaises(mw.MakeWorldError):
             mw.plan(str(self.maps / "Nowhere"), env=self.env)
 
@@ -96,10 +96,10 @@ class PlanTest(unittest.TestCase):
 
 class WorldFileText(unittest.TestCase):
     def test_a_stage_in_the_set_is_named_through_the_environment(self):
-        env = {"SWB_CARLA_USD": "/data/carla-usd"}
+        env = {"SCENSIM_CARLA_USD": "/data/carla-usd"}
         self.assertEqual(usd_world.usd_name("/data/carla-usd/Town01/Town01_physics.usda",
                                             "/maps/Town01", env),
-                         "${SWB_CARLA_USD}/Town01/Town01_physics.usda")
+                         "${SCENSIM_CARLA_USD}/Town01/Town01_physics.usda")
         self.assertEqual(usd_world.usd_name("/maps/Town01/isaac/w.usd", "/maps/Town01", env),
                          "isaac/w.usd")
         self.assertEqual(usd_world.usd_name("/elsewhere/w.usd", "/maps/Town01", env),
@@ -108,16 +108,16 @@ class WorldFileText(unittest.TestCase):
     def test_the_text_reads_back_as_the_server_reads_it(self):
         import yaml
 
-        from swb_isaac_world import names
+        from scensim_isaac_world import names
 
         with tempfile.TemporaryDirectory() as d:
             wf = Path(d) / "Town01" / "isaac" / "world.yaml"
             wf.parent.mkdir(parents=True)
-            wf.write_text(usd_world.world_yaml("${SWB_CARLA_USD}/Town01/T.usda",
+            wf.write_text(usd_world.world_yaml("${SCENSIM_CARLA_USD}/Town01/T.usda",
                                                ["/World/env/Road"]))
             data = yaml.safe_load(wf.read_text())
             self.assertEqual(data["ground_paths"], ["/World/env/Road"])
-            self.assertEqual(names.world_usd_of(str(wf), env={"SWB_CARLA_USD": "/s"}),
+            self.assertEqual(names.world_usd_of(str(wf), env={"SCENSIM_CARLA_USD": "/s"}),
                              "/s/Town01/T.usda")
 
 

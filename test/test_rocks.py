@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from swb_isaac_world import rocks as rk  # noqa: E402
+from scensim_isaac_world import rocks as rk  # noqa: E402
 
 def flat(x, y):
     return np.zeros(np.broadcast(x, y).shape)
@@ -158,11 +158,11 @@ class Shares(unittest.TestCase):
 
 class Placement(unittest.TestCase):
     def detail(self, **kw):
-        from swb_isaac_world import road_detail as rd
+        from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [200.0, 0.0]]), seed=3,
                         roughness=rd.Roughness(cls="C"), rocks=rk.Zones())
-        return rd.Detail([c], extras="swb_isaac_world.rocks:place", **kw)
+        return rd.Detail([c], extras="scensim_isaac_world.rocks:place", **kw)
 
     def test_a_tile_places_the_same_rocks_again(self):
         a, b = rk.place(self.detail(), 3, 0), rk.place(self.detail(), 3, 0)
@@ -186,7 +186,7 @@ class Placement(unittest.TestCase):
             d.close()
 
     def test_no_loose_rock_below_the_base(self):
-        from swb_isaac_world import road_detail as rd
+        from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [200.0, 0.0]]), seed=3,
                         roughness=rd.Roughness(cls="C"),
@@ -202,7 +202,7 @@ class Placement(unittest.TestCase):
         self.assertEqual(rk.place(none, 3, 0), [])  # a corridor without rocks has none
 
     def test_the_carriageway_is_graded(self):
-        from swb_isaac_world import road_detail as rd
+        from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [400.0, 0.0]]), seed=4,
                         roughness=rd.Roughness(cls="C"),

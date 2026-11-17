@@ -1,6 +1,6 @@
 """The standard handling manoeuvres on dry asphalt, wet asphalt and mud (roadmap 054 step 2).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/manoeuvres.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/manoeuvres.py \\
         [<out dir>]
     # MANOEUVRES=brake,step,...: only these manoeuvres; PADS=dry,mud: only these pads
     # ECU='{"esc_enabled": true}': the onboard computers' calibration overrides, every case
@@ -75,7 +75,7 @@ import logging  # noqa: E402
 
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, Vt  # noqa: E402
 
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -186,7 +186,7 @@ class TruthEstimator:
 
 
 if os.environ.get("ROAD_BARS") == "0":  # 066 R5: the road layer's corner without its bars
-    from swb_isaac_world import road_contact as _rc
+    from scensim_isaac_world import road_contact as _rc
     _bars = _rc.anti_roll_bars
     _rc.anti_roll_bars = lambda *a, **k: _bars(*a, **{**k, "share": 0.0})
     log.info("road layer: anti-roll bars off")

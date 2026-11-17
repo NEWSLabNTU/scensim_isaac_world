@@ -1,7 +1,7 @@
-"""Drive test (roadmap 047 S1): aib's Model 3 through the surface layer (`swb_isaac_world.surfaces`,
-`swb_isaac_world.surface_layer`, the world server's own code) on a flat pad, one lane per case.
+"""Drive test (roadmap 047 S1): aib's Model 3 through the surface layer (`scensim_isaac_world.surfaces`,
+`scensim_isaac_world.surface_layer`, the world server's own code) on a flat pad, one lane per case.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/surface_drive.py
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/surface_drive.py
     # prints one SPIKE-RESULT json
 
 The pad is one mesh labelled Road (SimReady's Q-code), so outside a zone every wheel is on dry
@@ -39,8 +39,8 @@ from pxr import Gf, Sdf, UsdGeom, UsdPhysics  # noqa: E402
 from aib.control import GEAR_DRIVE, Command, State  # noqa: E402
 from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene  # noqa: E402
 from aib.rig import EgoConfig  # noqa: E402
-from swb_isaac_world import surfaces  # noqa: E402
-from swb_isaac_world.surface_layer import QCODE_ATTR, SurfaceLayer  # noqa: E402
+from scensim_isaac_world import surfaces  # noqa: E402
+from scensim_isaac_world.surface_layer import QCODE_ATTR, SurfaceLayer  # noqa: E402
 
 FRAME, SUB = 0.05, 3
 dt = FRAME / SUB

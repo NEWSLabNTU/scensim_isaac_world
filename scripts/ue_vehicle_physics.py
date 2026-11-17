@@ -7,8 +7,8 @@ import traceback
 
 import unreal
 
-OUT = os.environ["SWB_PHYS_OUT"]   # where to write ue_physics.json (no default, 077 G75)
-ONLY = [s for s in os.environ.get("SWB_VEH_ONLY", "").split(",") if s]
+OUT = os.environ["SCENSIM_PHYS_OUT"]   # where to write ue_physics.json (no default, 077 G75)
+ONLY = [s for s in os.environ.get("SCENSIM_VEH_ONLY", "").split(",") if s]
 
 
 def conv(x, depth=0):

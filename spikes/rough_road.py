@@ -1,7 +1,7 @@
 """Roadmap 066 R3: aib's Model 3 over 2 km of generated gravel road (`road_detail`), Isaac at
 60 Hz with the tire contact ours (`road_contact`, R5 and R2).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/rough_road.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/rough_road.py \\
         [<out dir>]
     # prints one SPIKE-RESULT json
 
@@ -40,9 +40,9 @@ from aib.control import GEAR_DRIVE, Command, State  # noqa: E402
 from aib.frames import qrot  # noqa: E402
 from aib.isaac.vehicle import WHEELS, Vehicle, ensure_vehicle_scene  # noqa: E402
 from aib.rig import EgoConfig  # noqa: E402
-from swb_isaac_world import road_contact as rc  # noqa: E402
-from swb_isaac_world import road_detail as rd  # noqa: E402
-from swb_isaac_world import road_layer  # noqa: E402
+from scensim_isaac_world import road_contact as rc  # noqa: E402
+from scensim_isaac_world import road_detail as rd  # noqa: E402
+from scensim_isaac_world import road_layer  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "../../.."))
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(

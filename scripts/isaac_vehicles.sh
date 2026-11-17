@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CARLA's vehicles as Isaac assets (roadmap 043, "Vehicle model"): every blueprint in CARLA
 # 0.9.16's VehicleFactory exported to USD with SimReady and wrapped as a render-only asset,
-# with the catalogue swb_isaac_world.vehicle_assets reads (vehicles.json: each car's CARLA box,
+# with the catalogue scensim_isaac_world.vehicle_assets reads (vehicles.json: each car's CARLA box,
 # wheels, wheel base).
 #
 #   isaac_vehicles.sh [only:=<id>,<id>...] [export:=true] [props:=true] [walkers:=true]
@@ -10,20 +10,20 @@
 #   only:=<ids>     these blueprint ids only (vehicle.tesla.model3,...); default all
 #   export:=true    export again even if a vehicle's USD exists
 #   props:=true     CARLA's props instead (roadmap 044): every static.prop.* of the editor's
-#                   Content/Carla/Config/Default.Package.json, into $SWB_VEHICLE_USD/props/
+#                   Content/Carla/Config/Default.Package.json, into $SCENSIM_VEHICLE_USD/props/
 #                   with its props.json (prop_usd_assets.py); only:= takes prop ids
 #   walkers:=true   CARLA's walkers instead (roadmap 044 C): every BP_Walker* blueprint with
-#                   a walk and an idle cycle, into $SWB_VEHICLE_USD/walkers/ with its
+#                   a walk and an idle cycle, into $SCENSIM_VEHICLE_USD/walkers/ with its
 #                   walkers.json (walker_usd_assets.py); only:= takes ids (bp_walker_female1_v1)
 #   riders:=true    the two-wheelers' riders' grip instead (roadmap 044, open item 2): CARLA's
-#                   AS_Pedestrian_BikeHands on a rider, into $SWB_VEHICLE_USD/riders/ as
+#                   AS_Pedestrian_BikeHands on a rider, into $SCENSIM_VEHICLE_USD/riders/ as
 #                   grip.npz (rider_usd_assets.py); then the vehicles' wrappers are written
 #                   again, their riders seated with that grip (vehicle_usd_assets.py)
 #
 # Host paths from the environment:
 #   CARLA_SRC        CARLA 0.9.16 editor build with SimReady (required),
 #                    with an env.sh exporting UE4_ROOT and CARLA_ROOT (roadmap 043, "A new host")
-#   SWB_VEHICLE_USD  the output, one directory per blueprint id (required);
+#   SCENSIM_VEHICLE_USD  the output, one directory per blueprint id (required);
 #                    logs in its logs/
 #   ISAAC_ROOT       Isaac Sim's install, for pxr (isaac_env.sh; required)
 #
@@ -35,7 +35,7 @@
 #   3. assets: vehicle_usd_assets.py writes <id>/<id>.usda, <id>/wheels.usda, vehicles.json and
 #      vehicles.md.
 # The vehicles' physics (CARLA's get_physics_control) is a separate step against a running
-# CARLA: scripts/dump_vehicle_physics.py --root "$SWB_VEHICLE_USD" (writes physics.json).
+# CARLA: scripts/dump_vehicle_physics.py --root "$SCENSIM_VEHICLE_USD" (writes physics.json).
 #
 # The editor runs one at a time (isaac_town.sh's exports included): 41 vehicles took 11 min to
 # prepare and 7 min to export on the first host, 2.6 GB in all; 5 and 6.5 min on
@@ -43,7 +43,8 @@
 set -euo pipefail
 
 usage() { sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)    # src/swb_isaac_world
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)    # src/scensim_isaac_world
+source "$here/scripts/renamed_env.sh" || exit 2   # roadmap 080
 only=""; force=false; props=false; walkers=false; riders=false
 for a in "$@"; do
     case "$a" in
@@ -57,7 +58,7 @@ for a in "$@"; do
     esac
 done
 CARLA_SRC=${CARLA_SRC:?CARLA_SRC is not set: the CARLA 0.9.16 editor build}
-root=${SWB_VEHICLE_USD:?SWB_VEHICLE_USD is not set: the vehicle set to write into}
+root=${SCENSIM_VEHICLE_USD:?SCENSIM_VEHICLE_USD is not set: the vehicle set to write into}
 vehicles_root=$root
 kind=vehicles
 if [ "$props" = true ]; then root="$root/props"; kind=props; fi
@@ -142,7 +143,7 @@ if [ "$need_levels" = true ]; then
         fi
     fi
     stamp="$root/logs/.levels-start"; touch "$stamp"
-    SWB_VEH_META="$meta" SWB_VEH_ONLY="$only" SWB_VEH_KIND="$kind" commandlet "$root/logs/levels.log" \
+    SCENSIM_VEH_META="$meta" SCENSIM_VEH_ONLY="$only" SCENSIM_VEH_KIND="$kind" commandlet "$root/logs/levels.log" \
         "Execution of commandlet took" -run=pythonscript "-script=$here/scripts/ue_vehicle_levels.py"
     # The script's own log lines do not reach the commandlet's output: judge by its file.
     [ "$meta" -nt "$stamp" ] || { echo "isaac_vehicles: no new $meta; see $root/logs/levels.log" >&2; exit 1; }

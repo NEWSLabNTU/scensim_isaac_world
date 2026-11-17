@@ -12,8 +12,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from swb_isaac_world import soil, surface_layer, surfaces  # noqa: E402
-from swb_isaac_world.surfaces import RoadCondition, Surface, SurfaceError  # noqa: E402
+from scensim_isaac_world import soil, surface_layer, surfaces  # noqa: E402
+from scensim_isaac_world.surfaces import RoadCondition, Surface, SurfaceError  # noqa: E402
 
 TABLE = surfaces.load_classes()
 # The reference's mu is the car's own tire on dry asphalt (issue 013: the manoeuvre suite's
@@ -157,7 +157,7 @@ class UnvalidatedTest(unittest.TestCase):
 
 
 class RutsTest(unittest.TestCase):
-    """`swb.ruts` (047 D5): a saved rut set at the start, refused once the soil is driven."""
+    """`scensim.ruts` (047 D5): a saved rut set at the start, refused once the soil is driven."""
 
     ZONES = [{"id": "pit", "class": "sand", "soil": "grid", "ground_z": 0.0,
               "polygon": [[0, -5], [40, -5], [40, 5], [0, 5]]},
@@ -206,10 +206,10 @@ class RutsTest(unittest.TestCase):
         self.assertEqual(surfaces.available_ruts(self.map), ["mine", "worn"])
         self.assertEqual(surfaces.rut_set(self.map, "worn"), own / "worn.npz")
         again, _ = self.layer()
-        again.set_condition(1.0, "dry", {"swb.ruts": "worn"})
+        again.set_condition(1.0, "dry", {"scensim.ruts": "worn"})
         self.assertEqual(again.ruts, "worn")
         with self.assertRaises(SurfaceError) as e:
-            surfaces.road_condition(self.map, 1.0, "dry", {"swb.ruts": "gone"})
+            surfaces.road_condition(self.map, 1.0, "dry", {"scensim.ruts": "gone"})
         self.assertIn(str(state), str(e.exception))
         self.assertIn(str(own), str(e.exception))
 
@@ -224,14 +224,14 @@ class RutsTest(unittest.TestCase):
         (Path(self.dir.name) / "ruts" / "worn.npz").write_bytes(saved.read_bytes())
         self.assertEqual(surfaces.available_ruts(self.map), ["worn"])
         again, tiles = self.layer()
-        again.set_condition(1.0, "dry", {"swb.ruts": "worn"})
+        again.set_condition(1.0, "dry", {"scensim.ruts": "worn"})
         self.assertAlmostEqual(again.grids["pit"].depth(10.0, 0.8), depth, places=6)
         self.assertGreater(tiles["pit"].shown, 0)  # the zone's ground shows them at once
         self.assertEqual(again.ruts, "worn")
         self.assertEqual(again.condition.ruts, "worn")
         # the same set again (a later RoadCondition repeating it) is fine after driving
         self.drive(again, 20.0, 25.0)
-        again.set_condition(0.8, "moist", {"swb.ruts": "worn"})
+        again.set_condition(0.8, "moist", {"scensim.ruts": "worn"})
         self.assertEqual(again.condition.friction_scale, 0.8)
 
     def test_another_set_after_driving_is_refused_and_changes_nothing(self):
@@ -244,21 +244,21 @@ class RutsTest(unittest.TestCase):
         depth = layer.grids["pit"].depth(10.0, 0.8)
         for value in ("worn", "fresh"):
             with self.assertRaises(SurfaceError) as e:
-                layer.set_condition(0.5, "dry", {"swb.ruts": value})
+                layer.set_condition(0.5, "dry", {"scensim.ruts": value})
             self.assertIn("driven on since the start", str(e.exception))
         self.assertEqual(layer.condition, RoadCondition())  # unchanged
         self.assertEqual(layer.grids["pit"].depth(10.0, 0.8), depth)
-        # a RoadCondition without swb.ruts leaves the ruts as they are
+        # a RoadCondition without scensim.ruts leaves the ruts as they are
         layer.set_condition(0.5, "dry", {})
         self.assertEqual(layer.grids["pit"].depth(10.0, 0.8), depth)
         # after a fresh start (a new owner, a release) a set goes in again
         layer.fresh_soil()
-        layer.set_condition(1.0, "dry", {"swb.ruts": "worn"})
+        layer.set_condition(1.0, "dry", {"scensim.ruts": "worn"})
         self.assertAlmostEqual(layer.grids["pit"].depth(10.0, 0.8), depth, places=6)
 
     def test_fresh_ground_before_driving(self):
         layer, tiles = self.layer()
-        layer.set_condition(1.0, "dry", {"swb.ruts": "fresh"})
+        layer.set_condition(1.0, "dry", {"scensim.ruts": "fresh"})
         self.assertEqual(layer.grids, {})
         self.assertIsNone(layer.ruts)
 
@@ -268,25 +268,25 @@ class RutsTest(unittest.TestCase):
         (ruts / "junk.npz").write_bytes(b"not a zip")
         layer, _ = self.layer()
         with self.assertRaises(SurfaceError) as e:
-            layer.set_condition(1.0, "dry", {"swb.ruts": "junk"})
+            layer.set_condition(1.0, "dry", {"scensim.ruts": "junk"})
         self.assertIn("not a rut set", str(e.exception))
         for value, needle in (("Worn Out", "not a set name"), ("gone", "no gone.npz")):
             with self.assertRaises(SurfaceError) as e:
-                layer.set_condition(1.0, "dry", {"swb.ruts": value})
+                layer.set_condition(1.0, "dry", {"scensim.ruts": value})
             self.assertIn(needle, str(e.exception))
         # a set from a map whose zone is not here
-        from swb_isaac_world import soil
+        from scensim_isaac_world import soil
         g = soil.SoilGrid(TABLE["sand"].soil)
         g.begin_step()
         g.wheel(0, 1.0, 0.0, 0.0, 4500.0, 0.37, 0.235, 5.0, 5.0, 1 / 60, 0.0)
         soil.save_ruts(ruts / "other.npz", {"elsewhere": g})
         with self.assertRaises(SurfaceError) as e:
-            layer.set_condition(1.0, "dry", {"swb.ruts": "other"})
+            layer.set_condition(1.0, "dry", {"scensim.ruts": "other"})
         self.assertIn("zone 'elsewhere' is not a soil zone on the grid", str(e.exception))
         # a map with no grid zone holds no ruts
         cf = surfaces.parse({"zones": self.ZONES[1:]}, self.path, table=TABLE)
         with self.assertRaises(SurfaceError) as e:
-            surfaces.road_condition(cf, 1.0, "dry", {"swb.ruts": "fresh"})
+            surfaces.road_condition(cf, 1.0, "dry", {"scensim.ruts": "fresh"})
         self.assertIn("no soil zone on the grid", str(e.exception))
 
 
@@ -847,10 +847,10 @@ class SurfaceLayerTest(unittest.TestCase):
             (m / "isaac").mkdir(parents=True)
             (Path(d) / "set" / "Town01").mkdir(parents=True)
             (m / "isaac" / "world.yaml").write_text(
-                "usd: ${SWB_CARLA_USD}/Town01/T.usda\n")
+                "usd: ${SCENSIM_CARLA_USD}/Town01/T.usda\n")
             (m / "surfaces.yaml").write_text("defaults: {Road: asphalt}\n")
             state = Path(d) / "state"
-            with mock.patch.dict("os.environ", {"SWB_CARLA_USD": str(Path(d) / "set")}):
+            with mock.patch.dict("os.environ", {"SCENSIM_CARLA_USD": str(Path(d) / "set")}):
                 got = surface_layer.register([str(m / "isaac" / "world.yaml")], str(state))
                 (key, files), = got.items()
                 self.assertEqual(key, str(Path(d) / "set" / "Town01" / "T.usda"))
@@ -870,7 +870,7 @@ class SurfaceLayerTest(unittest.TestCase):
             with mock.patch.dict("os.environ", {}, clear=True):
                 with self.assertRaises(SurfaceError) as e:
                     surface_layer.register([str(m / "isaac" / "world.yaml")])
-                self.assertIn("SWB_CARLA_USD", str(e.exception))
+                self.assertIn("SCENSIM_CARLA_USD", str(e.exception))
 
     def test_a_pair_is_map_files_too(self):
         f = surface_layer.MapFiles.of(("/m/surfaces.yaml", (0.0, 0.0, 0.0)))
@@ -892,8 +892,8 @@ class RoadConditionTest(unittest.TestCase):
     def test_properties_set_zone_fields_and_leave_the_map_as_it_was(self):
         m = smap(self.MAP)
         cond, changed = surfaces.road_condition(
-            m, 0.8, "moist", {"swb.zone.ford.water_depth": "0.12",
-                              "swb.zone.ford.class": "gravel", "esmini.anything": "x"})
+            m, 0.8, "moist", {"scensim.zone.ford.water_depth": "0.12",
+                              "scensim.zone.ford.class": "gravel", "esmini.anything": "x"})
         self.assertEqual(cond, RoadCondition(0.8, "moist"))
         self.assertEqual(changed.at(5, 5, "Road"), Surface("gravel", None, 0.12, "ford"))
         # The map itself is untouched: the next condition starts from it.
@@ -905,16 +905,16 @@ class RoadConditionTest(unittest.TestCase):
     def test_every_problem_is_listed(self):
         with self.assertRaises(SurfaceError) as e:
             surfaces.road_condition(smap(self.MAP), -1, "soaked", {
-                "swb.zone.nowhere.class": "ice", "swb.zone.ford.colour": "red",
-                "swb.zone.ford.water_depth": "deep", "swb.zone.ford.wetness": "damp",
-                "swb.zone.ford.class": "lava", "swb.zone.pit.class": "dirt",
-                "swb.ruts": "keep", "swb.rut": "x"})
+                "scensim.zone.nowhere.class": "ice", "scensim.zone.ford.colour": "red",
+                "scensim.zone.ford.water_depth": "deep", "scensim.zone.ford.wetness": "damp",
+                "scensim.zone.ford.class": "lava", "scensim.zone.pit.class": "dirt",
+                "scensim.ruts": "keep", "scensim.rut": "x"})
         text = str(e.exception)
         for needle in ("wetness 'soaked'", "frictionScaleFactor -1.0",
                        "no zone 'nowhere'", "zones: ford, pit", "no field 'colour'",
                        "water depth is metres", "'damp' is not one of",
-                       "unknown class 'lava'", "zone 'pit' is soil", "swb.ruts: no keep.npz",
-                       "swb.rut: unknown property"):
+                       "unknown class 'lava'", "zone 'pit' is soil", "scensim.ruts: no keep.npz",
+                       "scensim.rut: unknown property"):
             self.assertIn(needle, text)
 
     def test_a_world_without_a_map_takes_world_wide_state_only(self):
@@ -922,7 +922,7 @@ class RoadConditionTest(unittest.TestCase):
         cond, _ = surfaces.road_condition(empty, 0.5, "lowFlooded")
         self.assertEqual(cond, RoadCondition(0.5, "lowFlooded"))
         with self.assertRaises(SurfaceError) as e:
-            surfaces.road_condition(empty, 1.0, "dry", {"swb.zone.ford.water_depth": "0.1"})
+            surfaces.road_condition(empty, 1.0, "dry", {"scensim.zone.ford.water_depth": "0.1"})
         self.assertIn("in (no surfaces.yaml) (zones: none)", str(e.exception))
 
     def test_the_layer_applies_it_from_the_next_update(self):
@@ -938,7 +938,7 @@ class RoadConditionTest(unittest.TestCase):
         layer.update(v, 10.0, 1 / 60)
         self.assertAlmostEqual(v.written[0], 0.5 * TABLE["asphalt"].wet[2])
         with self.assertRaises(SurfaceError):
-            layer.set_condition(1.0, "dry", {"swb.zone.ford.class": "lava"})
+            layer.set_condition(1.0, "dry", {"scensim.zone.ford.class": "lava"})
         self.assertEqual(layer.condition, RoadCondition(0.5, "wetWithPuddles"))  # unchanged
         layer.set_condition()
         layer.reset(v.path)

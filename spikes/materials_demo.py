@@ -1,6 +1,6 @@
 """Every ground the surface layer knows, one car, three tests each, filmed (roadmap 057's demo).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/materials_demo.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/materials_demo.py \\
         [<out dir>]
     # MATERIALS=ice,mud_wet: only these pads (their keys below); TESTS=start,brake,turn
     # EGO_RIG=drift_mustang.rig.yaml (the default): the car
@@ -41,7 +41,7 @@ import logging  # noqa: E402
 import yaml  # noqa: E402
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt  # noqa: E402
 
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

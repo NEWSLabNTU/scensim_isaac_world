@@ -1,6 +1,6 @@
 """The world server's guards against a wedged Kit (docs/issues/011), without Isaac.
 
-Both guards are the request-deadline child process's (`swb_world_server.watchdog`), started
+Both guards are the request-deadline child process's (`scensim_world_server.watchdog`), started
 before Kit; nothing of them runs in the world server's process (csb issue 042).
 """
 import ast
@@ -15,11 +15,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[1]))
-sys.path.insert(0, str(HERE.parents[1] / "deps" / "swb_world_protocol" / "swb_world_server"))
-from swb_isaac_world import world_server  # noqa: E402
-from swb_world_server import watchdog  # noqa: E402
+sys.path.insert(0, str(HERE.parents[1] / "deps" / "swb_world_protocol" / "scensim_world_server"))
+from scensim_isaac_world import world_server  # noqa: E402
+from scensim_world_server import watchdog  # noqa: E402
 
-SOURCE = (HERE.parents[1] / "swb_isaac_world" / "world_server.py").read_text()
+SOURCE = (HERE.parents[1] / "scensim_isaac_world" / "world_server.py").read_text()
 
 
 class GuardTest(unittest.TestCase):

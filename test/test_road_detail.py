@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from swb_isaac_world import road_detail as rd  # noqa: E402
+from scensim_isaac_world import road_detail as rd  # noqa: E402
 
 LINE = np.array([[0.0, 0.0], [400.0, 0.0]])
 

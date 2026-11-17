@@ -1,6 +1,6 @@
 """The Isaac ego's step responses on a surface map's soil (roadmap 052 step 2).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/step_response.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/step_response.py \\
         [<Town01 world.yaml> [<surfaces.yaml> <x> <y>]]
     # prints one SPIKE-RESULT json
 
@@ -37,8 +37,8 @@ import logging  # noqa: E402
 
 import yaml  # noqa: E402
 
-from swb_isaac_world.surface_layer import register  # noqa: E402
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.surface_layer import register  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

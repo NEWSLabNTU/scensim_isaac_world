@@ -2,7 +2,7 @@
 zone that has its own ground (`ground_z`: render tiles, the town cut out under it, each wheel
 on a plate fitted to the ruts under it), aib's Model 3 without Autoware.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/rut_town.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/rut_town.py \\
         [<out dir>]                      # default play_log/rut_town/<time>
     # ANGLES=6,3: the crossing angles, deg; prints one SPIKE-RESULT json, frames to <out>/*.jsonl
 
@@ -36,7 +36,7 @@ import logging  # noqa: E402
 
 import yaml  # noqa: E402
 
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

@@ -1,6 +1,6 @@
 """Low speed and edges on soil (roadmap 054 step 6): no oscillation, no jump.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/low_speed.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/low_speed.py \\
         [<out dir>]
     # CASES=edge,side,...: only these; DRIVER=p: the speed held by a proportional driver alone
     # (the default is PI, as Autoware's longitudinal controller); SLIP=real: a diagnosis, the
@@ -46,8 +46,8 @@ app = SimulationApp({"headless": True, "extra_args": ["--/crashreporter/url="]
                      + os.environ.get("ISAAC_KIT_ARGS", "").split()})
 import logging  # noqa: E402
 
-from swb_isaac_world import soil  # noqa: E402
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world import soil  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

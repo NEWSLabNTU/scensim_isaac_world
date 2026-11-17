@@ -1,0 +1,9 @@
+# Roadmap 066 R5: the proving ground with the road layer on and no detail under any pad.
+# One short corridor in the ground's far corner, away from every manoeuvre, switches on the
+# road layer (the egos' tire contact, PhysX's longer travel) for the whole world; on the pads
+# the detail is zero, so the 055 suite here measures what the model alone changes on smooth
+# road. spikes/manoeuvres.py with
+# PROVING_GROUND=../scensim_isaac_world/examples/road/proving_ground/proving_ground.yaml
+corridors:
+  - centreline: [[500.0, -30.0], [550.0, -30.0]]
+    seed: 1

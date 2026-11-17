@@ -24,7 +24,7 @@
 #   hydroplaning  true where standing water lifts the tire (paved, impermeable); loose and
 #          soft ground soaks it instead.
 #   soil   Bekker-Wong-Janosi parameters, for a soil zone of this class (047 S3,
-#          swb_isaac_world.soil): n, k_c N/m^(n+1), k_phi N/m^(n+2), cohesion Pa, friction_angle
+#          scensim_isaac_world.soil): n, k_c N/m^(n+1), k_phi N/m^(n+2), cohesion Pa, friction_angle
 #          deg, janosi_k m; elastic_k Pa/m, slip_sinkage (Lyasko's slip sinkage to this
 #          power, default 1; at the tire's own slip, PhysX's, docs/issues/010), unit_weight
 #          N/m^3 (the soil's bulk weight, for the pressure on a sunk tire's side, 054 T2;

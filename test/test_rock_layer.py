@@ -10,8 +10,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from swb_isaac_world import rock_layer  # noqa: E402
-from swb_isaac_world import rocks as rk  # noqa: E402
+from scensim_isaac_world import rock_layer  # noqa: E402
+from scensim_isaac_world import rocks as rk  # noqa: E402
 
 
 class PhysX:
@@ -101,7 +101,7 @@ class Prewarm(unittest.TestCase):
     draws, and its count is what a window of the road holds."""
 
     def test_window_matches_placement(self):
-        from swb_isaac_world import road_detail as rd
+        from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [2000.0, 0.0]]), seed=5,
                         roughness=rd.Roughness(cls="C"), rocks=rk.Zones())
@@ -124,7 +124,7 @@ class Prewarm(unittest.TestCase):
     def test_reserve_tops_up_per_vehicle(self):
         """Each ego that spawns tops the pool up; a call for as many as before adds nothing.
         Two windows' 99 % count is more than one's and less than twice it (the counts pool)."""
-        from swb_isaac_world import road_detail as rd
+        from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [2000.0, 0.0]]), seed=5,
                         roughness=rd.Roughness(cls="C"), rocks=rk.Zones(carriageway=0.01))

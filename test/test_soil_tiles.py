@@ -21,9 +21,9 @@ def load():
     stubs = {"pxr": pxr, "aib": types.ModuleType("aib"),
              "aib.isaac": types.ModuleType("aib.isaac"), "aib.isaac.vehicle": vehicle}
     with mock.patch.dict(sys.modules, stubs):
-        sys.modules.pop("swb_isaac_world.soil_tiles", None)
-        module = importlib.import_module("swb_isaac_world.soil_tiles")
-        sys.modules.pop("swb_isaac_world.soil_tiles", None)
+        sys.modules.pop("scensim_isaac_world.soil_tiles", None)
+        module = importlib.import_module("scensim_isaac_world.soil_tiles")
+        sys.modules.pop("scensim_isaac_world.soil_tiles", None)
     return module
 
 

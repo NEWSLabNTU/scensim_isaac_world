@@ -1,7 +1,7 @@
 """Which PhysX tire attributes take effect when changed while the simulation plays (roadmap
 054 step 1).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/tire_runtime.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/tire_runtime.py \\
         [<out dir> [<Town01 world.yaml> [<surfaces.yaml>]]]
     # prints one SPIKE-RESULT json; grep the log for PhysX's complaints about the edits
 
@@ -37,8 +37,8 @@ import logging  # noqa: E402
 import yaml  # noqa: E402
 from pxr import Gf, PhysxSchema  # noqa: E402
 
-from swb_isaac_world.surface_layer import register  # noqa: E402
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.surface_layer import register  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

@@ -1,6 +1,6 @@
 """Roadmap 066 R0: aib's Model 3 over the fixture course, each wheel logged every PhysX step.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/road_fixtures.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/road_fixtures.py \\
         [<out dir>]
     # prints one SPIKE-RESULT json; each case's per-step trace goes to <out dir>/<case>.jsonl
 
@@ -25,7 +25,7 @@ ROAD_VSUB=<vehicle substeps per PhysX step> (default the rig's), ROAD_TRAVEL=<m>
 travel, default the rig's), ROAD_ONLY=<case,...>.
 
 ROAD_TIRE=ours (066 R5): PhysX's query sees only the base road (`fixture_course.BASE`: every
-lane flat but the kicker), and `swb_isaac_world.road_contact` gives each wheel its contact with
+lane flat but the kicker), and `scensim_isaac_world.road_contact` gives each wheel its contact with
 the true profile every PhysX step: its force on the body (`apply_force_at_pos`, for the next
 step) and the tire's load as each wheel's friction. Each row then also has the model's
 per-wheel load (`tl`), its inner-step peak (`tlmax`) and PhysX's own (`pl`). The rock lane is
@@ -64,7 +64,7 @@ from aib.control import GEAR_DRIVE, Command, State  # noqa: E402
 from aib.isaac.vehicle import WHEELS, Vehicle, ensure_vehicle_scene  # noqa: E402
 from aib.rig import EgoConfig  # noqa: E402
 from aib.frames import qrot  # noqa: E402
-from swb_isaac_world import road_contact as rc  # noqa: E402
+from scensim_isaac_world import road_contact as rc  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "../../.."))
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(

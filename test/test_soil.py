@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world import soil, surfaces  # noqa: E402
-from swb_isaac_world.soil import SoilError, SoilGrid, tire_slip, wong_reece  # noqa: E402
+from scensim_isaac_world import soil, surfaces  # noqa: E402
+from scensim_isaac_world.soil import SoilError, SoilGrid, tire_slip, wong_reece  # noqa: E402
 
 TABLE = surfaces.load_classes()
 SAND = TABLE["sand"].soil
@@ -312,7 +312,7 @@ class GridTest(unittest.TestCase):
 
 
 try:
-    importlib.import_module("swb_isaac_world.soil_warp")  # Isaac's Python has warp
+    importlib.import_module("scensim_isaac_world.soil_warp")  # Isaac's Python has warp
     HAVE_WARP = True
 except ImportError:
     HAVE_WARP = False

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world import names, world_server  # noqa: E402
+from scensim_isaac_world import names, world_server  # noqa: E402
 
 try:
     from pxr import Usd
@@ -25,8 +25,8 @@ def Xform "Course" {
 
 class Expand(unittest.TestCase):
     def test_variables_and_home(self):
-        env = {"SWB_CARLA_USD": "/data/carla-usd", "HOME": "/home/u", "X": "x"}
-        self.assertEqual(names.expand("${SWB_CARLA_USD}/Town01/T.usda", env),
+        env = {"SCENSIM_CARLA_USD": "/data/carla-usd", "HOME": "/home/u", "X": "x"}
+        self.assertEqual(names.expand("${SCENSIM_CARLA_USD}/Town01/T.usda", env),
                          "/data/carla-usd/Town01/T.usda")
         self.assertEqual(names.expand("$X/a", env), "x/a")
         self.assertEqual(names.expand("~/a", env), os.path.expanduser("~/a"))
@@ -34,16 +34,26 @@ class Expand(unittest.TestCase):
 
     def test_an_unset_variable_is_refused_by_name(self):
         with self.assertRaises(names.UnresolvedName) as e:
-            names.expand("${SWB_CARLA_USD}/Town01/T.usda", {})
-        self.assertIn("SWB_CARLA_USD not set", str(e.exception))
+            names.expand("${SCENSIM_CARLA_USD}/Town01/T.usda", {})
+        self.assertIn("SCENSIM_CARLA_USD not set", str(e.exception))
         with self.assertRaises(names.UnresolvedName) as e:
             names.expand("$NOPE/a", {})
         self.assertIn("NOPE", str(e.exception))
 
+    def test_a_published_worlds_old_token_is_the_sets_root(self):
+        """080's data-format exception: map datasets' world files still say ${SWB_CARLA_USD}."""
+        env = {"SCENSIM_CARLA_USD": "/data/carla-usd"}
+        self.assertEqual(names.expand("${SWB_CARLA_USD}/Town01/T.usda", env),
+                         "/data/carla-usd/Town01/T.usda")
+        # it is the new setting's value it takes, not an old setting's
+        with self.assertRaises(names.UnresolvedName) as e:
+            names.expand("${SWB_CARLA_USD}/Town01/T.usda", {"SWB_CARLA_USD": "/x"})
+        self.assertIn("SCENSIM_CARLA_USD not set", str(e.exception))
+
     def test_the_older_host_setting_names_the_set(self):
-        self.assertEqual(names.expand("${SWB_CARLA_USD}/a", {"CARLA_USD": "/old"}), "/old/a")
+        self.assertEqual(names.expand("${SCENSIM_CARLA_USD}/a", {"CARLA_USD": "/old"}), "/old/a")
         self.assertEqual(names.carla_usd_root({"CARLA_USD": "/old"}), "/old")
-        self.assertEqual(names.carla_usd_root({"CARLA_USD": "/old", "SWB_CARLA_USD": "/new"}),
+        self.assertEqual(names.carla_usd_root({"CARLA_USD": "/old", "SCENSIM_CARLA_USD": "/new"}),
                          "/new")
 
 
@@ -57,14 +67,14 @@ class WorldFiles(unittest.TestCase):
         (self.set / "Town01" / "Town01_physics.usda").write_text("#usda 1.0\n")
         self.map = self.root / "maps" / "Town01"
         (self.map / "isaac").mkdir(parents=True)
-        self.env = {"SWB_CARLA_USD": str(self.set)}
+        self.env = {"SCENSIM_CARLA_USD": str(self.set)}
 
     def world(self, usd):
         (self.map / "isaac" / "world.yaml").write_text(f"usd: {usd}\nmap_origin: [0, 0, 0]\n")
         return str(self.map / "isaac" / "world.yaml")
 
     def test_a_world_files_usd_is_expanded(self):
-        wf = self.world("${SWB_CARLA_USD}/Town01/Town01_physics.usda")
+        wf = self.world("${SCENSIM_CARLA_USD}/Town01/Town01_physics.usda")
         self.assertEqual(names.world_usd_of(wf, env=self.env),
                          str(self.set / "Town01" / "Town01_physics.usda"))
 
@@ -74,22 +84,22 @@ class WorldFiles(unittest.TestCase):
                          str(self.map / "isaac" / "course.usdc"))
 
     def test_the_world_servers_preload_expands_it(self):
-        self.world("${SWB_CARLA_USD}/Town01/Town01_physics.usda")
-        clean = {k: v for k, v in os.environ.items() if k not in ("SWB_CARLA_USD", "CARLA_USD")}
-        with mock.patch.dict(os.environ, dict(clean, SWB_CARLA_USD=str(self.set)), clear=True):
+        self.world("${SCENSIM_CARLA_USD}/Town01/Town01_physics.usda")
+        clean = {k: v for k, v in os.environ.items() if k not in ("SCENSIM_CARLA_USD", "CARLA_USD")}
+        with mock.patch.dict(os.environ, dict(clean, SCENSIM_CARLA_USD=str(self.set)), clear=True):
             self.assertEqual(world_server.preload_list(str(self.map)),
                              [str(self.set / "Town01" / "Town01_physics.usda")])
         with mock.patch.dict(os.environ, clean, clear=True):
             with self.assertRaises(SystemExit) as e:
                 world_server.preload_list(str(self.map))
-            self.assertIn("SWB_CARLA_USD", str(e.exception))
+            self.assertIn("SCENSIM_CARLA_USD", str(e.exception))
 
     def test_a_requested_world_the_bridge_joined_unexpanded_is_found_again(self):
-        self.world("${SWB_CARLA_USD}/Town01/Town01_physics.usda")
-        joined = str(self.map / "${SWB_CARLA_USD}" / "Town01" / "Town01_physics.usda")
+        self.world("${SCENSIM_CARLA_USD}/Town01/Town01_physics.usda")
+        joined = str(self.map / "${SCENSIM_CARLA_USD}" / "Town01" / "Town01_physics.usda")
         want = str(self.set / "Town01" / "Town01_physics.usda")
         self.assertEqual(names.requested_usd(joined, str(self.map), self.env), want)
-        self.assertEqual(names.requested_usd("${SWB_CARLA_USD}/Town01/Town01_physics.usda",
+        self.assertEqual(names.requested_usd("${SCENSIM_CARLA_USD}/Town01/Town01_physics.usda",
                                              None, self.env), want)
         self.assertEqual(names.requested_usd("", str(self.map), self.env), "")
 
@@ -132,7 +142,7 @@ class CourseProps(unittest.TestCase):
         self.usd.write_text(COURSE_USDA)
         (self.isaac / "photo.png").write_bytes(b"png")
         self.state = root / "state" / "haruna"
-        self.env = {"SWB_CARLA_USD": str(self.set), "XDG_CACHE_HOME": str(root / "xdg")}
+        self.env = {"SCENSIM_CARLA_USD": str(self.set), "XDG_CACHE_HOME": str(root / "xdg")}
 
     def test_the_link_is_seen_in_the_layer(self):
         self.assertTrue(names.uses_link(str(self.usd)))
@@ -165,12 +175,12 @@ class CourseProps(unittest.TestCase):
         self.assertEqual(names.staged_world(str(self.usd), str(self.state), self.env), got)
         moved = Path(self.tmp.name) / "carla-usd-2"
         self.set.rename(moved)
-        names.staged_world(str(self.usd), str(self.state), dict(self.env, SWB_CARLA_USD=str(moved)))
+        names.staged_world(str(self.usd), str(self.state), dict(self.env, SCENSIM_CARLA_USD=str(moved)))
         self.assertEqual(os.readlink(here / "carla-usd"), str(moved))
 
     def test_without_a_state_directory_the_stand_in_is_in_the_cache(self):
         got = names.staged_world(str(self.usd), None, self.env)
-        self.assertTrue(got.startswith(str(Path(self.tmp.name) / "xdg" / "swb_isaac_world")))
+        self.assertTrue(got.startswith(str(Path(self.tmp.name) / "xdg" / "scensim_isaac_world")))
         self.assertTrue(os.path.exists(os.path.join(os.path.dirname(got), "carla-usd",
                                                     "Props", "rail.usda")))
 
@@ -185,7 +195,7 @@ class CourseProps(unittest.TestCase):
     def test_no_set_named_is_refused(self):
         with self.assertRaises(names.UnresolvedName) as e:
             names.staged_world(str(self.usd), str(self.state), {})
-        self.assertIn("SWB_CARLA_USD", str(e.exception))
+        self.assertIn("SCENSIM_CARLA_USD", str(e.exception))
 
 
 if __name__ == "__main__":

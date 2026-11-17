@@ -6,7 +6,7 @@ the group by path; one removed (prim and target); one more added; the group's ta
 whole. Count the warnings between markers in the log. The cubes' group filters the ground's,
 so a cube in its group falls through the ground: the last line says which ones did.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/group_late.py
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/group_late.py
 """
 import json
 import os
@@ -126,7 +126,7 @@ if "vehicle" in EXTRA:  # aib's Model 3, as the rock spike makes it
     sys.path.insert(0, os.path.join(HERE, ".."))
     from aib.isaac.vehicle import Vehicle
     from aib.rig import EgoConfig
-    from swb_isaac_world import road_layer
+    from scensim_isaac_world import road_layer
 
     rig = EgoConfig.load(os.path.join(
         HERE, "../deps/autoware_isaac_bridge/src/aib/config/ego.yaml")).load_rig()

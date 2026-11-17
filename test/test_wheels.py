@@ -1,4 +1,4 @@
-"""`/swb/wheels` (roadmap 076 A9): the rows, the decimation and the message; no ROS."""
+"""`/scensim/wheels` (roadmap 076 A9): the rows, the decimation and the message; no ROS."""
 import math
 import sys
 import unittest
@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world import wheels  # noqa: E402
+from scensim_isaac_world import wheels  # noqa: E402
 
 
 class FakeMsg:

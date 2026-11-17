@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world import sky  # noqa: E402
-from swb_isaac_world.sky import Sky  # noqa: E402
+from scensim_isaac_world import sky  # noqa: E402
+from scensim_isaac_world.sky import Sky  # noqa: E402
 
 
 def deg(x):
@@ -14,7 +14,7 @@ def deg(x):
 
 
 class SunTest(unittest.TestCase):
-    """The same cases as swb_core::environment's: both servers put the sun alike."""
+    """The same cases as scensim_core::environment's: both servers put the sun alike."""
 
     def test_the_sun_stands_where_it_should(self):
         az, el = sky.sun_position(12.0, 172, 0.0)

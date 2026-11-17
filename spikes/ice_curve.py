@@ -2,7 +2,7 @@
 Tech's tire tests on ice (Zenodo 1009017, 1009023, 1009025; CC BY 4.0), the zips unpacked in
 <data dir> (`Tyre_ice_tests_Part{1,2,3}/*.mat`).
 
-    python3 src/swb_isaac_world/spikes/ice_curve.py <data dir>
+    python3 src/scensim_isaac_world/spikes/ice_curve.py <data dir>
 
 Each test runs the wheel through four programmed slips in turn (its name: P_<slips>_<bar>p
 <tenths>_<load N>_EVE2[_WF_t<cond>][_brk]_<repeat>), braking (`brk`) or driving. The files

@@ -3,7 +3,7 @@ test (`spikes/references/<name>.yaml`), at the reference's tire size and load, t
 measured. Prints measured against ours per slip; with --fit, fits the named soil keys first
 (Nelder-Mead on their logarithms) and prints the class's `soil:` row as fitted.
 
-    python3 src/swb_isaac_world/spikes/fit_reference.py he2020_srtt_medium --soil sand \\
+    python3 src/scensim_isaac_world/spikes/fit_reference.py he2020_srtt_medium --soil sand \\
         [--fit n,k_phi,friction_angle,janosi_k,slip_sinkage,rolling_resistance] \\
         [--set cohesion=0,k_c=0] [--start janosi_k=0.01,...]
 
@@ -27,7 +27,7 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
-from swb_isaac_world import soil, surfaces  # noqa: E402
+from scensim_isaac_world import soil, surfaces  # noqa: E402
 
 SPEED = 1.0
 RUT_IS_SINKAGE = 0.27  # slip up to which the reference's rut depth stands for the sinkage

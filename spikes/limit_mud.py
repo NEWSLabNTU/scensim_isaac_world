@@ -1,6 +1,6 @@
 """Today's model at the grip limit on mud, without Autoware.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/limit_mud.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/limit_mud.py \\
         [<out dir> [<Town01 world.yaml> [<surfaces.yaml>]]]
     # prints one SPIKE-RESULT json; each case's frames go to <out dir>/<case>.jsonl
 
@@ -37,8 +37,8 @@ import logging  # noqa: E402
 
 import yaml  # noqa: E402
 
-from swb_isaac_world.surface_layer import register  # noqa: E402
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.surface_layer import register  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

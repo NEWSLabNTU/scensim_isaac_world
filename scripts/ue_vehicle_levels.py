@@ -1,35 +1,35 @@
 """UE4 editor Python (run with -run=pythonscript; isaac_vehicles.sh, roadmap 043): one blank
 level per CARLA vehicle in the VehicleFactory, the blueprint spawned at the origin, saved under
 /Game/CSBVehicleExport/ for SimReady's map export. Writes metadata (blueprint id, BP path,
-CARLA bounding box, wheels) as JSON to SWB_VEH_META, in UE units (cm, left-handed: x forward,
-y right, z up). With SWB_VEH_ONLY (blueprint ids, comma separated) only those are prepared,
-and their entries replace theirs in an existing SWB_VEH_META.
+CARLA bounding box, wheels) as JSON to SCENSIM_VEH_META, in UE units (cm, left-handed: x forward,
+y right, z up). With SCENSIM_VEH_ONLY (blueprint ids, comma separated) only those are prepared,
+and their entries replace theirs in an existing SCENSIM_VEH_META.
 
-With SWB_VEH_KIND=props (roadmap 044) the same for CARLA's props instead: every
+With SCENSIM_VEH_KIND=props (roadmap 044) the same for CARLA's props instead: every
 `static.prop.*` blueprint of Content/Carla/Config/Default.Package.json, its static mesh alone
 at the origin, under /Game/CSBPropExport/; the metadata has the mesh's bounds.
 
-With SWB_VEH_KIND=walkers (roadmap 044 C), CARLA's walkers: per `BP_Walker*` blueprint two
+With SCENSIM_VEH_KIND=walkers (roadmap 044 C), CARLA's walkers: per `BP_Walker*` blueprint two
 levels under /Game/CSBWalkerExport/, `<id>_walk` and `<id>_idle`, each a plain
 SkeletalMeshActor of the walker's mesh playing a walk or an idle cycle in single-node mode
 (SimReady exports that as a SkelAnimation; the blueprint's own anim blueprint it does not).
 The id is the blueprint's name, lower case: which `walker.pedestrian.NNNN` a blueprint is
 lives in WalkerFactory's graph, not in a property an editor script reads.
 
-With SWB_VEH_KIND=riders (roadmap 044, open item 2), the two-wheelers' riders' grip: one level
+With SCENSIM_VEH_KIND=riders (roadmap 044, open item 2), the two-wheelers' riders' grip: one level
 `/Game/CSBRiderExport/rider_grip`, a SkeletalMeshActor of a rider (`SK_Female`, on the Gen2
 skeleton every rider of a CARLA two-wheeler has) playing `AS_Pedestrian_BikeHands` in
 single-node mode. That pose is the only part of CARLA's `AB_Biker` an export can carry (the rest
-is IK, which `swb_isaac_world.rider` does offline); CARLA has no seated sequence on that skeleton
+is IK, which `scensim_isaac_world.rider` does offline); CARLA has no seated sequence on that skeleton
 (`PedestrianOnSidecar` has no skeleton at all)."""
 import json
 import os
 
 import unreal
 
-OUT = os.environ["SWB_VEH_META"]
-ONLY = [s for s in os.environ.get("SWB_VEH_ONLY", "").split(",") if s]
-KIND = os.environ.get("SWB_VEH_KIND", "vehicles")
+OUT = os.environ["SCENSIM_VEH_META"]
+ONLY = [s for s in os.environ.get("SCENSIM_VEH_ONLY", "").split(",") if s]
+KIND = os.environ.get("SCENSIM_VEH_KIND", "vehicles")
 
 def v(x):
     return [x.x, x.y, x.z]

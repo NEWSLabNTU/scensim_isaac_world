@@ -7,7 +7,7 @@ catalogue's `vehicles.json`, reads `get_physics_control()` and writes it into th
 Y flipped). Also writes `physics.json` beside it (blueprint id -> physics):
 `vehicle_usd_assets.py` regenerates `vehicles.json` without it, and `vehicle_assets.py` falls back to the sidecar.
 
-    dump_vehicle_physics.py [--root <SWB_VEHICLE_USD>] [--host H] [--port 2000]
+    dump_vehicle_physics.py [--root <SCENSIM_VEHICLE_USD>] [--host H] [--port 2000]
                             [--only vehicle.tesla.model3,...]
 
 What CARLA gives, and what it means here:
@@ -29,7 +29,7 @@ front wheels' spacing), `wheel_radius` (the front wheels'), `rear_axle_x`.
 
 Each actor is destroyed with its children first (none are attached here; CLAUDE.md: never
 destroy a vehicle with sensors on it). The world is put in synchronous mode for the duration
-and restored; refuses if another client already owns the tick. On a testbed swb's simulation
+and restored; refuses if another client already owns the tick. On a testbed scensim's simulation
 side (`just run`) owns it: run against a CARLA of your own on another port instead
 (`./CarlaUE4.sh -carla-rpc-port=3000 -nosound -RenderOffScreen`, Vulkan pinned to NVIDIA,
 then `--port 3000`; 41 vehicles take seconds) and kill that one by pid afterwards.
@@ -123,7 +123,7 @@ def destroy(world, actor):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    usd = os.environ.get("SWB_VEHICLE_USD")   # no default root (077 G75)
+    usd = os.environ.get("SCENSIM_VEHICLE_USD")   # no default root (077 G75)
     ap.add_argument("--root", default=usd, required=not usd)
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=2000)

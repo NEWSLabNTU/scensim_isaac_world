@@ -1,4 +1,4 @@
-# swb_isaac_world: Isaac Sim behind the world protocol. Its dependencies, swb_world_protocol
+# scensim_isaac_world: Isaac Sim behind the world protocol. Its dependencies, scensim_world_protocol
 # (the Python shell) and autoware_isaac_bridge (the ego), are submodules under deps/
 # (git submodule update --init --recursive). ISAAC_ROOT: the Isaac Sim 6.1 pip install.
 
@@ -20,7 +20,7 @@ test:
 
 # The tests, then pyflakes
 check: test
-    python3 -m pyflakes swb_isaac_world test scripts
+    python3 -m pyflakes scensim_isaac_world test scripts
 
 # Autoware's message bindings for Isaac's Python (once per Isaac install)
 msgs:

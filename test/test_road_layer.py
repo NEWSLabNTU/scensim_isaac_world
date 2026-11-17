@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "deps/autoware_isaac_bridge/src/aib"))
 
-from swb_isaac_world import road_layer  # noqa: E402
+from scensim_isaac_world import road_layer  # noqa: E402
 
 DT = 1.0 / 60
 
@@ -74,7 +74,7 @@ class Schema(unittest.TestCase):
             road_layer.parse([1, 2])
 
     def test_the_examples_parse(self):
-        ex = ROOT / "swb_isaac_world" / "examples" / "road"
+        ex = ROOT / "scensim_isaac_world" / "examples" / "road"
         files = sorted(ex.glob("*/road_detail.yaml"))
         self.assertGreaterEqual(len(files), 2)
         for f in files:
@@ -88,7 +88,7 @@ class Schema(unittest.TestCase):
         import contextlib
         import io
 
-        ex = ROOT / "swb_isaac_world" / "examples" / "road" / "town01"
+        ex = ROOT / "scensim_isaac_world" / "examples" / "road" / "town01"
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(road_layer.main(["check", str(ex)]), 0)
@@ -159,7 +159,7 @@ class Layer(unittest.TestCase):
     def test_a_rock_under_a_wheel_lifts_it_and_is_pushed(self):
         """The rocks with the layer as the world runs it: a stand-in stream (no USD) and one
         loose rock under the rear left wheel."""
-        from swb_isaac_world import rocks as rk
+        from scensim_isaac_world import rocks as rk
 
         c = road_layer.parse({"corridors": [{"centreline": [[0, 0], [200, 0]],
                                              "roughness": {"gd0": 1e-14},
@@ -200,7 +200,7 @@ class MeshFaces(unittest.TestCase):
     """The render mesh's faces: only the corridors', road and verge apart (no Isaac)."""
 
     def test_faces_cover_the_corridor_only(self):
-        from swb_isaac_world import road_detail as rd
+        from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [400.0, 0.0]]), seed=1)
         d = rd.Detail([c])

@@ -5,7 +5,7 @@ scenario-world-bridge issue 005.
     spikes/run_spike.sh cyclonedds <log> spikes/render_probe.py <usd | simple> [frames]
 
 Opens the stage (or `simple`: 50 cubes and a light), waits for it to load and renders
-`frames` frames (default 2000) with `app.update()`, no swb code, no ego, no physics.
+`frames` frames (default 2000) with `app.update()`, no scensim code, no ego, no physics.
 Prints `PROBE frame <i> <ms>` for the first ten and every 500th, then `PROBE PASS <n>
 frames`. On a host whose driver loses the GPU (that issue: Xid 109 then Xid 31, Vulkan
 ERROR_DEVICE_LOST) Kit exits within the first frames, with no PASS line; the kernel's

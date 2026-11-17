@@ -1,7 +1,7 @@
-"""Drive test (roadmap 047 S3): aib's Model 3 through the soil layer (`swb_isaac_world.soil`, via
-`swb_isaac_world.surface_layer`, the world server's own code) on a flat pad, one lane per zone.
+"""Drive test (roadmap 047 S3): aib's Model 3 through the soil layer (`scensim_isaac_world.soil`, via
+`scensim_isaac_world.surface_layer`, the world server's own code) on a flat pad, one lane per zone.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/soil_drive.py
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/soil_drive.py
     # prints one SPIKE-RESULT json
 
 The pad is one mesh labelled Road, so outside a zone every wheel is on dry asphalt; zones
@@ -21,7 +21,7 @@ applies it. Cases:
                  (SOIL_SPIKE_ONLY=mud: those alone; SOIL_SPIKE_MUD_CLASS=mud_soft or another
                  soil class: that class in the lane, 053)
   rut_fresh, rut_from_set  047 D5: after rut_2 its ruts are saved, then a pass on fresh
-                 ground, then the saved set loaded by `swb.ruts` and the same pass again
+                 ground, then the saved set loaded by `scensim.ruts` and the same pass again
   rut_1, rut_2   the `sand_rut` lane: sand whose ground is the server's tiles (`ground_z`, a
                  hole in the pad), 8 m/s through it twice on one line: the rear wheels' ground
                  hit (the rut they meet), the body's height, the speed's largest drop in a
@@ -49,9 +49,9 @@ from pxr import Gf, PhysicsSchemaTools, Sdf, UsdGeom, UsdPhysics  # noqa: E402
 from aib.control import GEAR_DRIVE, Command, State  # noqa: E402
 from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene  # noqa: E402
 from aib.rig import EgoConfig  # noqa: E402
-from swb_isaac_world import soil as soil_model, surfaces  # noqa: E402
-from swb_isaac_world.soil_tiles import SoilTiles  # noqa: E402
-from swb_isaac_world.surface_layer import QCODE_ATTR, SurfaceLayer  # noqa: E402
+from scensim_isaac_world import soil as soil_model, surfaces  # noqa: E402
+from scensim_isaac_world.soil_tiles import SoilTiles  # noqa: E402
+from scensim_isaac_world.surface_layer import QCODE_ATTR, SurfaceLayer  # noqa: E402
 
 FRAME, SUB = 0.05, 3
 dt = FRAME / SUB
@@ -394,7 +394,7 @@ progress("rut_1")
 out["rut_1"] = rut()
 progress("rut_2")
 out["rut_2"] = rut()
-# 047 D5: the two passes' ruts saved, fresh ground, then the set loaded by `swb.ruts`.
+# 047 D5: the two passes' ruts saved, fresh ground, then the set loaded by `scensim.ruts`.
 saved = layer.save_ruts(os.path.join(MAP_DIR, "ruts", "runs"))
 os.replace(saved, os.path.join(MAP_DIR, "ruts", "worn.npz"))
 layer.fresh_soil()
@@ -402,7 +402,7 @@ progress("rut_fresh")
 out["rut_fresh"] = rut()
 layer.fresh_soil()
 t0 = time.perf_counter()
-layer.set_condition(1.0, "dry", {"swb.ruts": "worn"})
+layer.set_condition(1.0, "dry", {"scensim.ruts": "worn"})
 out["ruts_load_s"] = round(time.perf_counter() - t0, 2)
 progress("rut_from_set")
 out["rut_from_set"] = rut()

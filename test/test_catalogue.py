@@ -1,6 +1,6 @@
 """The ego (aib's rig) against CARLA's catalogue (roadmaps 043, 045): pure data, no Isaac.
 
-    python -m unittest discover -s src/swb_isaac_world/test
+    python -m unittest discover -s src/scensim_isaac_world/test
 """
 import copy
 import math
@@ -16,7 +16,7 @@ sys.path.insert(0, str(AIB))
 if (AIB / "aib").is_dir():
     from aib.params import VehicleMismatch, bicycle_limit  # noqa: E402
 
-    from swb_isaac_world.catalogue import (check_ego, ego_body, ego_model, load_ego,  # noqa: E402
+    from scensim_isaac_world.catalogue import (check_ego, ego_body, ego_model, load_ego,  # noqa: E402
                                            physics_params)
 
 DEFAULT_EGO = AIB / "config/ego.yaml"

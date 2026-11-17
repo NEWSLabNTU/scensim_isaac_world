@@ -16,7 +16,7 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from swb_isaac_world import road_detail as rd  # noqa: E402
+from scensim_isaac_world import road_detail as rd  # noqa: E402
 
 out = {}
 plain = rd.Section(crown=0.0, ditch_depth=0.0, shoulder=3.0)

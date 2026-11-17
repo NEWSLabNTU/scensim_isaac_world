@@ -2,7 +2,7 @@
 RoadLayer, MeshStream, `rock_layer` RockStream), under aib's Model 3 over 2 km of R3's class C
 corridor at a held speed, Isaac at 60 Hz.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/rock_world.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/rock_world.py \\
         [<out dir>]
     # prints one SPIKE-RESULT json
 
@@ -14,7 +14,7 @@ the same road with no rocks: the frame time to compare.
 
 ROCK_RECORD=1 films each drive with the world server's recorder (`recorder.py`: dash, wheel,
 chase and course cameras, under the sun and sky world.py lights, the ego in its catalogue
-body from SWB_VEHICLE_USD) to <out dir>/record/; scripts/record_video.py makes the video.
+body from SCENSIM_VEHICLE_USD) to <out dir>/record/; scripts/record_video.py makes the video.
 Rendering costs frame time: not for the budget.
 
 ROCK_COURSE=tour drives a road of six 100 m sections from the car's start instead, one condition
@@ -53,10 +53,10 @@ from aib.control import GEAR_DRIVE, Command, State  # noqa: E402
 from aib.frames import qrot  # noqa: E402
 from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene  # noqa: E402
 from aib.rig import EgoConfig  # noqa: E402
-from swb_isaac_world import road_detail as rd  # noqa: E402
-from swb_isaac_world import road_layer  # noqa: E402
-from swb_isaac_world import rock_layer  # noqa: E402
-from swb_isaac_world import rocks as rk  # noqa: E402
+from scensim_isaac_world import road_detail as rd  # noqa: E402
+from scensim_isaac_world import road_layer  # noqa: E402
+from scensim_isaac_world import rock_layer  # noqa: E402
+from scensim_isaac_world import rocks as rk  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "../../.."))
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
@@ -170,8 +170,8 @@ plate = UsdGeom.Cube(stage.GetPrimAtPath(veh.plate_path))
 if RECORD:  # world.py's light and the ego's catalogue body, for the cameras
     from pxr import UsdLux
 
-    from swb_isaac_world import vehicle_assets
-    from swb_isaac_world.catalogue import ego_model
+    from scensim_isaac_world import vehicle_assets
+    from scensim_isaac_world.catalogue import ego_model
 
     sun = UsdLux.DistantLight.Define(stage, "/World/sun")
     sun.CreateIntensityAttr(2500.0)
@@ -409,8 +409,8 @@ def run(kmh):
     if RECORD:
         from types import SimpleNamespace
 
-        from swb_isaac_world import recorder
-        from swb_isaac_world.recorder import Recorder
+        from scensim_isaac_world import recorder
+        from scensim_isaac_world.recorder import Recorder
 
         if "ROCK_RECORD_SIZE" in os.environ:  # smaller pictures where the GPU is short
             recorder.SIZE = tuple(int(v) for v in os.environ["ROCK_RECORD_SIZE"].split("x"))

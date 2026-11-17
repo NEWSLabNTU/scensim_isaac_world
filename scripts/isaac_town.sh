@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # A CARLA town as an Isaac world (roadmap 043), now `make_world`'s (roadmap 076 A9):
 #
-#   ros2 run swb_isaac_world make_world <map dir> [--usd <town usd>] [--town <Town>] [--export]
+#   ros2 run scensim_isaac_world make_world <map dir> [--usd <town usd>] [--town <Town>] [--export]
 #       [--physics]
 #
-# This script stays for the old arguments and calls it (swb_isaac_world.make_world):
+# This script stays for the old arguments and calls it (scensim_isaac_world.make_world):
 #
 #   isaac_town.sh <Town> [map_path:=<dir>] [export:=true] [physics:=true]
 #
@@ -15,13 +15,14 @@
 #   physics:=true   write <Town>_physics.usda again even if it exists (an export does too)
 #
 # Host paths from the environment: CARLA_SRC (the editor build with SimReady, for an export),
-# SWB_CARLA_USD or CARLA_USD (the CARLA USD set; required), ISAAC_ROOT.
+# SCENSIM_CARLA_USD or CARLA_USD (the CARLA USD set; required), ISAAC_ROOT.
 set -euo pipefail
 
 usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 town=$1; shift
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)    # this repository
+source "$here/scripts/renamed_env.sh" || exit 2   # roadmap 080
 map_path=""; force=false; physics=false
 for a in "$@"; do
     case "$a" in
@@ -32,7 +33,7 @@ for a in "$@"; do
     esac
 done
 export CARLA_SRC=${CARLA_SRC:?CARLA_SRC is not set: the CARLA 0.9.16 editor build}
-export SWB_CARLA_USD=${SWB_CARLA_USD:-${CARLA_USD:?CARLA_USD is not set: the CARLA USD set to write into}}
+export SCENSIM_CARLA_USD=${SCENSIM_CARLA_USD:-${CARLA_USD:?CARLA_USD is not set: the CARLA USD set to write into}}
 if [ -z "$map_path" ]; then
     for m in "$town" "${town%HD}"; do
         if [ -n "${CARLA_MAPS:-}" ] && [ -d "$CARLA_MAPS/$m" ]; then
@@ -42,7 +43,7 @@ if [ -z "$map_path" ]; then
     [ -n "$map_path" ] || { echo "isaac_town: no Autoware map for $town under \$CARLA_MAPS (map_path:=)" >&2; exit 1; }
 fi
 args=("$map_path" --town "$town")
-if [ "$force" = true ] || [ ! -f "$SWB_CARLA_USD/$town/$town.usd" ]; then
+if [ "$force" = true ] || [ ! -f "$SCENSIM_CARLA_USD/$town/$town.usd" ]; then
     args+=(--export)
 fi
 [ "$physics" = true ] && args+=(--physics)
@@ -52,4 +53,4 @@ set +u
 source "$here/scripts/isaac_env.sh"
 set -u
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
-exec python -m swb_isaac_world.make_world "${args[@]}"
+exec python -m scensim_isaac_world.make_world "${args[@]}"

@@ -39,6 +39,13 @@ class LaunchRefusals(unittest.TestCase):
         env.update({k: v for k, v in kw.items() if k not in m.ARGS})
         return m.problems(var, env)
 
+    def test_a_renamed_host_setting_is_refused_naming_its_successor(self):
+        """roadmap 080: SWB_* set in the launch's environment is refused before the node."""
+        m = load()
+        self.assertEqual(self.ok(m), [])
+        got = self.ok(m, SWB_CARLA_USD="/old")
+        self.assertEqual(got, ["SWB_CARLA_USD is renamed SCENSIM_CARLA_USD (roadmap 080, scensim)"])
+
     def test_isaac_root_has_no_default_and_must_be_an_install(self):
         """077 G75: unset ISAAC_ROOT is refused (no lab default), and so is a root without
         install_isaac.sh's venv and Isaac Sim in it."""
@@ -46,7 +53,7 @@ class LaunchRefusals(unittest.TestCase):
         got = self.ok(m, ISAAC_ROOT="")
         self.assertEqual(len(got), 1, got)
         self.assertIn("ISAAC_ROOT is not set", got[0])
-        self.assertIn("isaac.root in ~/.config/swb/host.yaml", got[0])
+        self.assertIn("isaac.root in ~/.config/scensim/host.yaml", got[0])
         empty = Path(self._tmp.name) / "empty"
         empty.mkdir()
         got = self.ok(m, ISAAC_ROOT=str(empty))
@@ -82,7 +89,7 @@ class LaunchRefusals(unittest.TestCase):
         self.assertEqual(self.ok(m, follow="editor", record_view="road", wheels_topic="0",
                                  physics_hz="30", ego="none", world=str(PATH.parent),
                                  EGO_ROS_DOMAIN_ID="7"), [])
-        self.assertEqual(self.ok(m, world="${SWB_NOT_SET_HERE}/Town01/Town01.usda"), [])
+        self.assertEqual(self.ok(m, world="${SCENSIM_NOT_SET_HERE}/Town01/Town01.usda"), [])
 
     def test_a_world_under_home_is_taken_as_the_server_takes_it(self):
         """names.expand expands ~ as well as variables: a ~ entry that exists is not refused
@@ -112,7 +119,7 @@ class LaunchRefusals(unittest.TestCase):
 
     def test_the_xml_passes_every_argument_and_the_node_respawns(self):
         m = load()
-        xml = (PATH.parent / "swb_isaac_world.launch.xml").read_text()
+        xml = (PATH.parent / "scensim_isaac_world.launch.xml").read_text()
         for name in m.ARGS:
             self.assertIn(f'<arg name="{name}" value="$(var {name})"/>', xml)
             self.assertIn(f'<arg name="{name}" default=', xml)

@@ -7,7 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from swb_isaac_world import road_contact as rc  # noqa: E402
+from scensim_isaac_world import road_contact as rc  # noqa: E402
 
 # aib's Model 3 front corner
 SPRUNG, K, C, TRAVEL, SAG, R, WIDTH = 413.6, 41.8e3, 3.74e3, 0.20, 0.097, 0.37, 0.235
@@ -144,7 +144,7 @@ class CornerForces(unittest.TestCase):
 
 try:
     import importlib
-    importlib.import_module("swb_isaac_world.road_contact_warp")  # Isaac's Python has warp
+    importlib.import_module("scensim_isaac_world.road_contact_warp")  # Isaac's Python has warp
     HAVE_WARP = True
 except ImportError:
     HAVE_WARP = False

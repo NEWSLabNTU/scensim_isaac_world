@@ -1,4 +1,4 @@
-"""The course's road ribbon (roadmap 058, docs/issues/024 of swb); no Isaac needed."""
+"""The course's road ribbon (roadmap 058, docs/issues/024 of scensim); no Isaac needed."""
 import math
 import sys
 import unittest
@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world.course import geometry  # noqa: E402
+from scensim_isaac_world.course import geometry  # noqa: E402
 
 
 def hairpin():

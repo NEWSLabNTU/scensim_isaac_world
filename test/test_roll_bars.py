@@ -9,8 +9,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from swb_isaac_world import road_contact as rc  # noqa: E402
-from swb_isaac_world import roll_bars as rb  # noqa: E402
+from scensim_isaac_world import road_contact as rc  # noqa: E402
+from scensim_isaac_world import roll_bars as rb  # noqa: E402
 
 
 def params():

@@ -2,7 +2,7 @@
 rocks placed (`rocks.place`, Golombek-Rapp by zone), Isaac at 60 Hz, the tire contact ours.
 The cost of rocks at scale.
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/rock_field.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/rock_field.py \\
         [<out dir>]
     # prints one SPIKE-RESULT json
 
@@ -49,10 +49,10 @@ from aib.control import GEAR_DRIVE, Command, State  # noqa: E402
 from aib.frames import qrot  # noqa: E402
 from aib.isaac.vehicle import GROUPS, WHEELS, Vehicle, ensure_vehicle_scene  # noqa: E402
 from aib.rig import EgoConfig  # noqa: E402
-from swb_isaac_world import road_contact as rc  # noqa: E402
-from swb_isaac_world import road_detail as rd  # noqa: E402
-from swb_isaac_world import road_layer  # noqa: E402
-from swb_isaac_world import rocks as rk  # noqa: E402
+from scensim_isaac_world import road_contact as rc  # noqa: E402
+from scensim_isaac_world import road_detail as rd  # noqa: E402
+from scensim_isaac_world import road_layer  # noqa: E402
+from scensim_isaac_world import rocks as rk  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "../../.."))
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
@@ -117,7 +117,7 @@ corridor = rd.Corridor(
     water_bars=rd.WaterBars(at=(X_START + 1500.0, X_START + 1550.0, X_START + 1600.0)),
     rocks=rk.Zones() if ROCKS_ON else None)
 detail = rd.Detail([corridor], max_tiles=96, workers=1, processes=True,
-                   extras="swb_isaac_world.rocks:place" if ROCKS_ON else None)
+                   extras="scensim_isaac_world.rocks:place" if ROCKS_ON else None)
 
 # --- the rocks: placed per tile in the worker, prims only near the car ---------------------
 TRACK = {}  # tile -> loose rocks in the left wheel track (fallen from the cut slope)

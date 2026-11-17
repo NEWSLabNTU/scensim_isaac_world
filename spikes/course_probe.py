@@ -1,7 +1,7 @@
 """A generated course (roadmap 058) in Isaac, without Autoware: load its world, put the ego on
 the run's lane and drive it down by pure pursuit, filmed (C9a).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/course_probe.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/course_probe.py \\
         <map dir> [<out dir>]
     # S_END=600 (m along the centreline to stop at), SPEED=8 (m/s), HAIRPIN_SPEED=5 (m/s
     # within HAIRPIN_NEAR m of a hairpin's apex), EGO_RIG=drift_mustang.rig.yaml
@@ -18,7 +18,7 @@ LIVE=1 drives with autoware-drift's live planner (race_planner.serve) from LIVE_
 LIVE_MULTISTART=<JSON> is its init's `multistart` (null, one start: e.g. '{"schedule":
 {"always": false}}' for the surface rule's starts, `"always": true` for every start every
 re-plan); `<out>/live.jsonl` has every frame, with the seed and mode of the plan the car is on
-and each plan the first time it is adopted (serve.py's). SWB_REPO: the superproject (default
+and each plan the first time it is adopted (serve.py's). SCENSIM_REPO: the superproject (default
 three levels up), for running this file from another checkout.
 
 With PLAN=<npz> (autoware-drift race_planner.plan's, on this course's map frame) it tracks that
@@ -61,13 +61,13 @@ import logging  # noqa: E402
 import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("course_probe")
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.environ.get("SWB_REPO") or os.path.abspath(os.path.join(HERE, "../../.."))
+REPO = os.environ.get("SCENSIM_REPO") or os.path.abspath(os.path.join(HERE, "../../.."))
 MAP = os.path.realpath(sys.argv[1])
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
     REPO, "play_log/course_probe", time.strftime("%Y-%m-%d_%H-%M-%S"))
@@ -101,7 +101,7 @@ ANGLES = {"max_steer", "enter_sideslip", "target_sideslip", "hold_angle", "exit_
 
 os.makedirs(OUT, exist_ok=True)
 world_cfg = yaml.safe_load(open(os.path.join(MAP, "isaac/world.yaml")))
-course_yaml = yaml.safe_load(open(os.path.join(REPO, "src/swb_isaac_world/swb_isaac_world/courses",
+course_yaml = yaml.safe_load(open(os.path.join(REPO, "src/scensim_isaac_world/scensim_isaac_world/courses",
                                                os.path.basename(MAP) + ".yaml")))
 LANE_OFF = course_yaml["road"]["lane_width"] / 2  # the left lane's middle, as the scenario
 # off the lane: past the road's far edge from the lane's middle, with a car's width to spare
@@ -206,7 +206,7 @@ if LIVE:
     spec_path = os.path.join(REPO, "src/sim_vehicle_spec/vehicles/drift_mustang.yaml")
     live.stdin.write(json.dumps({"init": {
         "map_dir": MAP, "spec": spec_path,
-        "classes": os.path.join(REPO, "src/swb_isaac_world/config/surface_classes.yaml"),
+        "classes": os.path.join(REPO, "src/scensim_isaac_world/config/surface_classes.yaml"),
         "l0": os.environ.get("LIVE_L0"), "grip": float(os.environ.get("LIVE_GRIP", "0.92")),
         "budget": float(os.environ.get("LIVE_BUDGET", "1.0")),
         "multistart": json.loads(os.environ.get("LIVE_MULTISTART") or "null")}}) + "\n")

@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
 import fixture_course as fc  # noqa: E402
-from swb_isaac_world import road_contact as rc  # noqa: E402
+from scensim_isaac_world import road_contact as rc  # noqa: E402
 
 # aib's Model 3 front corner (066 R0)
 SPRUNG, K, C = 413.6, 41.8e3, 3.74e3

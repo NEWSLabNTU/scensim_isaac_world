@@ -1,7 +1,7 @@
 """PhysX's tire, measured: force over load against slip, sideways and lengthways (roadmap 054
 step 4a).
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/tire_curve.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/tire_curve.py \\
         [<out dir>]
     # CASES=dry,dry035,mud: only these; NO_STIFFNESS=1: T1's stiffness not written; prints one SPIKE-RESULT json; each case's frames go to
     # <out dir>/<case>_<sweep>.jsonl, one row per frame with every wheel's PhysX state
@@ -46,7 +46,7 @@ from omni.physx.bindings._physx import (  # noqa: E402
     VEHICLE_WHEEL_STATE_TIRE_LATERAL_DIRECTION, VEHICLE_WHEEL_STATE_TIRE_LATERAL_SLIP,
     VEHICLE_WHEEL_STATE_TIRE_LONGITUDINAL_DIRECTION, VEHICLE_WHEEL_STATE_TIRE_LONGITUDINAL_SLIP)
 
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

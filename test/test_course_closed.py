@@ -11,8 +11,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from swb_isaac_world.course import centreline as cl  # noqa: E402
-from swb_isaac_world.course import geometry, maps  # noqa: E402
+from scensim_isaac_world.course import centreline as cl  # noqa: E402
+from scensim_isaac_world.course import geometry, maps  # noqa: E402
 
 ORIGIN = {"lat": 36.15, "lon": 139.92, "alt": 20.0}
 R, STRAIGHT = 15.0, 100.0   # a stadium: two straights joined by two 180 deg bends

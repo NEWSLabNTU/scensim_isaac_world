@@ -1,6 +1,6 @@
 """Does a despawned ego stay in the RTX lidar's scene (roadmap 052 step 1)?
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/ghost_ego.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/ghost_ego.py \\
         [<Town01 world.yaml>]
     # prints one SPIKE-RESULT json
 
@@ -40,8 +40,8 @@ import logging  # noqa: E402
 import numpy as np  # noqa: E402
 import yaml  # noqa: E402
 
-from swb_isaac_world.surface_layer import register  # noqa: E402
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.surface_layer import register  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")

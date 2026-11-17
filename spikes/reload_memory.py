@@ -1,6 +1,6 @@
 """Where does a scenario's world load leave memory behind (docs/issues/003)?
 
-    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/swb_isaac_world/spikes/reload_memory.py \\
+    ISAAC_ROOT=... run_spike.sh fastrtps <log> $PWD/src/scensim_isaac_world/spikes/reload_memory.py \\
         [<Town01 world.yaml> [<surfaces.yaml>]]
     # prints one SPIKE-RESULT json
 
@@ -46,8 +46,8 @@ import logging  # noqa: E402
 
 import yaml  # noqa: E402
 
-from swb_isaac_world.surface_layer import register  # noqa: E402
-from swb_isaac_world.world import IsaacWorld  # noqa: E402
+from scensim_isaac_world.surface_layer import register  # noqa: E402
+from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
