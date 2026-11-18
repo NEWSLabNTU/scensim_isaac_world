@@ -1237,7 +1237,10 @@ class IsaacWorld(WorldBase):
         for ego in egos:
             ego.take_commands()
         t1 = time.perf_counter()
-        render = render or any(e.renders for e in egos)
+        # a camera renders only in the frames it publishes in, at its own rate (aib's
+        # Camera.render_at; 077 item 26: rendered every 10 ms frame, RTF 0.15); a lidar every
+        # frame. Every ego is asked: each switches its cameras' render products on or off.
+        render = any([e.renders_at(sim_time + substeps * dt) for e in egos]) or render
         touching = {}  # (handle, other, other path) -> impulse
         samples = []  # /scensim/wheels: (sim time, ego name, wheel rows), at most 20 Hz
         sample = self.wheels_topic and self.ego_ros is not None and bool(egos)
