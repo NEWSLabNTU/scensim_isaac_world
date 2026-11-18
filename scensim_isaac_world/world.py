@@ -37,11 +37,13 @@ from isaacsim.core.api import World
 from isaacsim.core.utils.stage import add_reference_to_stage
 from pxr import Gf, PhysicsSchemaTools, PhysxSchema, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics
 
+from scensim_world_server.server import RequestError
 from scensim_world_server.world import World as WorldBase
 
 from . import motion as body_motion, names, signals as signal_table, sky as scenario_sky
 from . import surfaces, wheels as wheel_topic
 from . import vehicle_assets
+from . import step_rate
 from . import walkers as walker_gait
 from .catalogue import check_ego, ego_body, ego_model, load_ego
 from . import road_layer
@@ -248,6 +250,11 @@ class IsaacWorld(WorldBase):
     # --- World -----------------------------------------------------------------------------
 
     def load(self, usd, ground_paths, signals=(), request=None):
+        # SSv2's frame must be a whole number of the world's physics steps (issue 051)
+        problem = step_rate.frame_problem(request.step_time, self.dt) \
+            if request is not None else None
+        if problem:
+            raise RequestError(problem)
         self._reset_sky()
         self.latitude = scenario_sky.map_latitude(request.map_dir) \
             if request is not None and request.map_dir else 0.0
@@ -1177,9 +1184,11 @@ class IsaacWorld(WorldBase):
     def step(self, drives, substeps, dt, render, sim_time=0.0):
         """`drives`: `{handle: server.Drive}`. `sim_time`: the server's clock at the start of
         the step (the egos' stamps)."""
-        if abs(dt - self.dt) > 1e-12:
-            self.world.set_simulation_dt(physics_dt=dt, rendering_dt=dt)
-            self.dt = dt
+        # Only the world's own step: after set_simulation_dt at run time the PhysX vehicle
+        # stopped moving (issue 051, 077 G84), and the ego is tuned on this one
+        problem = step_rate.step_problem(dt, self.dt)
+        if problem:
+            raise RequestError(problem)
         for handle, d in drives.items():
             if d.kinematic and handle in self.tracked:
                 self._to_kinematic(handle)
