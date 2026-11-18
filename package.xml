@@ -15,9 +15,11 @@
        scripts find each in AMENT_PREFIX_PATH's site- or dist-packages, for Isaac's own Python.
        aib is not declared: it lives in autoware_isaac_bridge, whose aib_launch needs Autoware,
        which a simulation-only host has not (rosdep would fail on it); found at run time,
-       refused by name when absent. -->
+       refused by name when absent. sim_vehicle_ecu is pure Python with no dependency, so the
+       simulation side (the sim tarball) carries it. -->
   <exec_depend>scensim_world_server</exec_depend>
   <exec_depend>sim_vehicle_spec</exec_depend>
+  <exec_depend>sim_vehicle_ecu</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

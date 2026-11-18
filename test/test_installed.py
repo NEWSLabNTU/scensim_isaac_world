@@ -23,7 +23,10 @@ SOURCES = {
     "scensim_world_server": REPO / "deps" / "scensim_world_protocol" / "scensim_world_server",
     "aib": AIB / "src" / "aib",
     "sim_vehicle_spec": AIB / "deps" / "sim_vehicle_spec",
-    "sim_vehicle_ecu": AIB / "deps" / "sim_vehicle_ecu",
+    # a checkout of sim_vehicle_ecu that is its ROS package (1fbd2f6 and later), when aib's
+    # deps/ pin predates it: SCENSIM_TEST_ECU_SRC
+    "sim_vehicle_ecu": Path(os.environ.get("SCENSIM_TEST_ECU_SRC")
+                            or AIB / "deps" / "sim_vehicle_ecu"),
 }
 ROS = Path("/opt/ros/humble/setup.bash")
 ISAAC_ROOT = os.environ.get("ISAAC_ROOT", "")
@@ -38,8 +41,8 @@ pytestmark = pytest.mark.skipif(not ROS.is_file() or shutil.which("colcon") is N
                                 reason="needs ROS 2 Humble and colcon")
 
 ECU_STAND_IN = {
-    # sim_vehicle_ecu has no package.xml yet (118 adds it, roadmap 082 item 2): a stand-in
-    # ament_python wrapper around its own source, as it will install
+    # sim_vehicle_ecu before its ROS package (1fbd2f6; aib's deps/ pin may predate it): a
+    # stand-in ament_python wrapper around its own source, installed as the package installs
     "package.xml": textwrap.dedent("""\
         <?xml version="1.0"?>
         <package format="3"><name>sim_vehicle_ecu</name><version>0.0.0</version>
