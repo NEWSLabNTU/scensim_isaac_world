@@ -196,6 +196,7 @@ def test_a_simulation_only_source_build_takes_aib_from_its_checkouts_deps(sim_on
     assert files["aib_config"] == str(tree / "deps/autoware_isaac_bridge/src/aib/config")
 
 
+@NEEDS_ISAAC  # isaac_env.sh refuses an unset ISAAC_ROOT before it looks for aib
 def test_a_relocated_install_never_reads_the_tree_it_was_built_from(sim_only, tmp_path):
     """The same install copied elsewhere (a tarball), its source tree still on disk: no aib,
     refused by name rather than taken from that tree."""
