@@ -122,9 +122,9 @@ def isaac_probe(prefix, mods, env_sh=None):
                  f" && python -c {shlex.quote(probe)}")
 
 
-def clean(script, cwd="/"):
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""),
-           "PATH": "/usr/bin:/bin", "ISAAC_ROOT": ISAAC_ROOT}
+def clean(script, cwd="/", isaac_root=None):
+    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin",
+           "ISAAC_ROOT": ISAAC_ROOT if isaac_root is None else isaac_root}
     return subprocess.run(["bash", "-c", script], cwd=cwd, env=env, capture_output=True,
                           text=True, timeout=300)
 
@@ -196,16 +196,27 @@ def test_a_simulation_only_source_build_takes_aib_from_its_checkouts_deps(sim_on
     assert files["aib_config"] == str(tree / "deps/autoware_isaac_bridge/src/aib/config")
 
 
-@NEEDS_ISAAC  # isaac_env.sh refuses an unset ISAAC_ROOT before it looks for aib
+def fake_isaac_root(tmp_path):
+    """What isaac_env.sh checks of an Isaac install before it looks for aib (its
+    `_scensim_need` list), as empty files: enough to reach the aib refusal without Isaac."""
+    root = tmp_path / "isaac"
+    for need in ("venv/bin/activate", "venv/lib/python3.12/site-packages/isaacsim"):
+        (root / need).parent.mkdir(parents=True, exist_ok=True)
+        (root / need).touch()
+    return str(root)
+
+
 def test_a_relocated_install_never_reads_the_tree_it_was_built_from(sim_only, tmp_path):
     """The same install copied elsewhere (a tarball), its source tree still on disk: no aib,
-    refused by name rather than taken from that tree."""
+    refused by name rather than taken from that tree. Runs without Isaac (a fake install):
+    the refusal comes before anything of Isaac's is used."""
     ws, prefix = sim_only
     moved = tmp_path / "moved"
     shutil.copytree(prefix, moved, symlinks=True)
     r = clean(f"source {ROS} && source {moved}/setup.bash && "
               "export SCENSIM_PREFIX_PATH=\"$AMENT_PREFIX_PATH\" && unset AMENT_PREFIX_PATH && "
-              f"source {moved}/share/scensim_isaac_world/scripts/isaac_env.sh")
+              f"source {moved}/share/scensim_isaac_world/scripts/isaac_env.sh",
+              isaac_root=fake_isaac_root(tmp_path))
     assert r.returncode != 0
     assert "isaac_env.sh: no aib (the Isaac ego" in r.stderr, r.stderr
 
