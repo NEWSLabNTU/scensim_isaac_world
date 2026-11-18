@@ -45,6 +45,12 @@ from . import vehicle_assets
 from . import walkers as walker_gait
 from .catalogue import check_ego, ego_body, ego_model, load_ego
 from . import road_layer
+
+# SimReady's label attribute and the Q-codes for a body whose asset has none (084)
+QCODE_ATTR = "semantics:labels:wikidata_qcode"
+CAR_QCODE = "Q1420"
+KIND_QCODE = {"EGO": CAR_QCODE, "VEHICLE": CAR_QCODE, "PEDESTRIAN": "Q221488",
+              "MISC_OBJECT": "Q2302426"}
 from .surface_layer import MapFiles, SurfaceLayer, kinematic_wheels, sink_pose
 
 log = logging.getLogger("scensim_isaac_world")
@@ -209,6 +215,15 @@ class IsaacWorld(WorldBase):
                     attr.Set(True)
         self.ground = [GROUND_PLANE]
         self.entities = {}  # handle -> (path, translate op, orient op)
+        # handle -> (path, box centre, box dims, qcode): what an ego's lidar classes the
+        # points of a body spawned after its StableIdMap by (aib.intensity, roadmap 084)
+        self.lidar_boxes = {}
+        try:
+            from aib import intensity as lidar_intensity
+
+            lidar_intensity.set_entity_source(self._lidar_boxes)
+        except ImportError:  # an aib without the spec's lidar intensity
+            pass
         self.tracked = {}  # handle -> centre of mass in the body frame (dynamic bodies, 044)
         self.sim_view = None  # omni.physics.tensors simulation view, made on first use
         self.tracked_view = None  # (handles, rigid body view) over the tracked bodies in PhysX
@@ -764,6 +779,7 @@ class IsaacWorld(WorldBase):
             self.reporters.add(handle)
             self.egos[handle] = ego
             self.entities[handle] = (path, None, None)
+            self.lidar_boxes[handle] = (path, tuple(center), tuple(dims), CAR_QCODE)
             if self.surface is not None and self.surface.road_rocks is not None:
                 # 066 R4: a rock window per ego, its pool made now rather than mid-drive
                 self.surface.road_rocks.reserve(len(self.egos))
@@ -862,6 +878,7 @@ class IsaacWorld(WorldBase):
             self.reporters.add(handle)
         self.entities[handle] = (path, translate, orient)
         self.by_path[path] = handle
+        self.lidar_boxes[handle] = (path, tuple(center), tuple(dims), self._body_qcode(path, kind))
         body = asset or prop or walker
         if body is not None and body["id"] not in self.rendered_bodies:
             # Its materials compile on this render, under the bridge's load timeout, so the
@@ -1052,7 +1069,31 @@ class IsaacWorld(WorldBase):
             n += 1
         return f"{ENTITIES}/ego{n}"
 
+    def _body_qcode(self, path, kind):
+        """The SimReady Q-code a body's asset labels it with (the CARLA exports label every
+        vehicle, walker and prop), else its kind's."""
+        prim = self.stage.GetPrimAtPath(path)
+        for p in Usd.PrimRange(prim, Usd.TraverseInstanceProxies()):
+            a = p.GetAttribute(QCODE_ATTR)
+            if a and a.HasValue() and a.Get():
+                return str(a.Get()[0])
+        return KIND_QCODE.get(kind)
+
+    def _lidar_boxes(self):
+        """Each spawned body's world frame (a USD row-vector matrix), box and Q-code, for an
+        ego's lidar to class the points of bodies its StableIdMap does not know (084)."""
+        cache = UsdGeom.XformCache()
+        out = []
+        for path, centre, dims, qcode in self.lidar_boxes.values():
+            prim = self.stage.GetPrimAtPath(path)
+            if not prim:
+                continue
+            m = cache.GetLocalToWorldTransform(prim)
+            out.append(([[m[r][c] for c in range(4)] for r in range(4)], centre, dims, qcode))
+        return out
+
     def despawn(self, handle):
+        self.lidar_boxes.pop(handle, None)
         path, translate, _ = self.entities.pop(handle)
         self.by_path.pop(path, None)
         ego = self.egos.pop(handle, None)
