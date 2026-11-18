@@ -1084,7 +1084,7 @@ class IsaacWorld(WorldBase):
         ego's lidar to class the points of bodies its StableIdMap does not know (084)."""
         cache = UsdGeom.XformCache()
         out = []
-        for path, centre, dims, qcode in self.lidar_boxes.values():
+        for path, centre, dims, qcode in list(self.lidar_boxes.values()):
             prim = self.stage.GetPrimAtPath(path)
             if not prim:
                 continue
