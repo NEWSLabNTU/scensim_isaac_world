@@ -150,7 +150,9 @@ def add_props(stage, course, m, c, work, rng):
         seg_len = float(max(a[:, 0].max(), b[:, 0].max(), cc[:, 0].max()))
         rail_pts = pr.sample_surface((a, b, cc), pr.SAMPLE_DENSITY, rng)
         UsdGeom.Xform.Define(stage, DEFAULT + "/Props/Guardrails")
-        segs = pr.guardrails(c, m, half, seg_len)
+        from . import record
+
+        segs = pr.guardrails(c, record.load(work), seg_len)
         print(f"props: {len(segs)} guardrail segments, {sum(s[4] for s in segs):.0f} m")
         for n, (x, y, z, yaw, length) in enumerate(segs):
             p = f"{DEFAULT}/Props/Guardrails/g{n}"

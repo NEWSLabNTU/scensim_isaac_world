@@ -1,9 +1,10 @@
 """C5: a course's props, rough: guardrails and trees from the CARLA Isaac set ($CARLA_USD).
 
-Guardrails, one asset segment after another along the road's edge, where the ground beside the
-shoulder falls more than `DROP` m below the road within `DROP_AT` m, and on the outside of every
-bend tighter than `RAIL_RADIUS` m. Each segment has an invisible box collider; the asset's own
-mesh has none.
+Guardrails, one asset segment after another along the road's edge, where the course's road
+record (`record`, scensim roadmap 086 C3) has a barrier: where the ground beside the shoulder
+falls more than `DROP` m below the road within `DROP_AT` m, and on the outside of every bend
+tighter than `RAIL_RADIUS` m (`record.classify`). Each segment has an invisible box collider;
+the asset's own mesh has none.
 
 Trees where the aerial photo is forest (green over red, not bright), at about the course's
 `tree_spacing` between the road's shoulder plus `TREE_CLEAR` m and its `tree_band`, as a
@@ -36,26 +37,25 @@ def _terrain_z(m):
     return lambda x, y: f(np.stack([np.asarray(y), np.asarray(x)], axis=-1))
 
 
-def guardrails(c, m, half, seg_len):
-    """(x, y, z, yaw, length) of each segment, from its start, both sides."""
+def guardrails(c, rec, seg_len):
+    """(x, y, z, yaw, length) of each segment, from its start, both sides: one wherever the
+    road record `rec` (road_record.Stations over c's stations) has a barrier, at its offset."""
     from .geometry import _normals, is_closed
 
-    tz = _terrain_z(m)
-    x, y, z, k = c["x"], c["y"], c["z"], c["curvature"]
+    x, y, z = c["x"], c["y"], c["z"]
     nrm = _normals(x, y, is_closed(c))
+    barrier = rec.side["barrier_offset"]
     step = int(round(seg_len / 0.5))
     out = []
-    for side in (1, -1):
-        off = side * (half + RAIL_OFFSET)
-        probe = side * (half + DROP_AT)
+    for s, side in enumerate((1, -1)):
         for i in range(0, len(x) - step, step):
-            gz = float(tz(x[i] + probe * nrm[i, 0], y[i] + probe * nrm[i, 1]))
-            outer = abs(k[i]) > 1.0 / RAIL_RADIUS and np.sign(k[i]) == -side
-            if gz < z[i] - DROP or outer:
-                px, py = x[i] + off * nrm[i, 0], y[i] + off * nrm[i, 1]
-                qx, qy = x[i + step] + off * nrm[i + step, 0], y[i + step] + off * nrm[i + step, 1]
-                yaw = math.atan2(qy - py, qx - px)
-                out.append((px, py, float(z[i]), yaw, math.hypot(qx - px, qy - py)))
+            if np.isnan(barrier[s, i]):
+                continue
+            off = side * float(barrier[s, i])
+            px, py = x[i] + off * nrm[i, 0], y[i] + off * nrm[i, 1]
+            qx, qy = x[i + step] + off * nrm[i + step, 0], y[i + step] + off * nrm[i + step, 1]
+            yaw = math.atan2(qy - py, qx - px)
+            out.append((px, py, float(z[i]), yaw, math.hypot(qx - px, qy - py)))
     return out
 
 

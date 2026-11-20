@@ -88,7 +88,8 @@ TOP_KEYS = {
               "(a list of prim paths; optional)",
 }
 CORRIDOR_KEYS = {
-    "centreline": "two or more [x, y] or [x, y, z] in the map frame, m (z: the base road's)",
+    "centreline": "two or more [x, y] or [x, y, z] in the map frame, m (z: the base road's); "
+                  "absent when the stations' .npz holds x, y (z)",
     "seed": "an integer: the same seed, the same road (default the corridor's index)",
     "roughness": "ISO 8608 roughness (a mapping; absent: class D)",
     "section": "the cross-section, the same along the road: road_record's fields (a mapping;"
@@ -167,12 +168,17 @@ def parse(data, where=FILE, base=None, notes=None, classes=None):
         if not isinstance(c, dict):
             problems.append(f"{at}: not a mapping ({', '.join(CORRIDOR_KEYS)})")
             continue
+        own = None
+        if "centreline" not in c and isinstance(c.get("stations"), str):
+            own = _stations_line(c["stations"], base)  # the record carries its centreline
         try:
-            line = np.asarray(c.get("centreline") or [], dtype=float)
+            line = own if own is not None else np.asarray(c.get("centreline") or [],
+                                                           dtype=float)
         except (TypeError, ValueError):
             line = np.zeros((0,))
         if line.ndim != 2 or line.shape[1] not in (2, 3) or len(line) < 2:
-            problems.append(f"{at}: centreline must be two or more [x, y] or [x, y, z]")
+            problems.append(f"{at}: centreline must be two or more [x, y] or [x, y, z]"
+                            + (", or x and y in its stations' .npz" if "stations" in c else ""))
             continue
         bad = set(c) - set(CORRIDOR_KEYS)
         if bad:
@@ -226,6 +232,18 @@ def parse(data, where=FILE, base=None, notes=None, classes=None):
     if problems:
         raise RoadDetailError("\n".join(problems))
     return out
+
+
+def _stations_line(name, base):
+    """The centreline a stations .npz carries (n, 3), or None."""
+    try:
+        with np.load(os.path.join(base or ".", name), allow_pickle=False) as z:
+            if "x" not in z.files or "y" not in z.files:
+                return None
+            zz = z["z"] if "z" in z.files else np.zeros(len(z["x"]))
+            return np.stack([z["x"], z["y"], zz], axis=1).astype(float)
+    except (OSError, ValueError):
+        return None
 
 
 def _section(c, line, base, at, problems, notes, classes=None):

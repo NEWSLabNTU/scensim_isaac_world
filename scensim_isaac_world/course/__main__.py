@@ -1,5 +1,5 @@
 """`python3 -m scensim_isaac_world.course <course.yaml> <map dir> [steps...]` (steps: fetch,
-centreline, geometry, maps, scenario; all by default; the USD world is `scensim_isaac_world.course.usd`). See the package's docstring and roadmap 058."""
+centreline, geometry, record, maps, scenario; all by default; the USD world is `scensim_isaac_world.course.usd`). See the package's docstring and roadmap 058."""
 import argparse
 import json
 import os
@@ -12,9 +12,10 @@ from . import centreline as cl
 from . import data
 from . import geometry
 from . import maps
+from . import record
 from . import scenario
 
-STEPS = ("fetch", "centreline", "geometry", "maps", "scenario")
+STEPS = ("fetch", "centreline", "geometry", "record", "maps", "scenario")
 
 
 def section_box(course, frame, pts=None):
@@ -101,6 +102,13 @@ def preview(meshes, photo, out):
     img.save(out, quality=88)
 
 
+def write_record(work, course):
+    """086 C3: the course's road record from centreline.npz and meshes.npz (`record`)."""
+    c = np.load(os.path.join(work, "centreline.npz"))
+    m = np.load(os.path.join(work, "meshes.npz"))
+    return record.write(work, record.build(c, course, m))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("course")
@@ -111,6 +119,9 @@ def main(argv=None):
     raw = os.path.join(a.map_dir, "raw")
     work = os.path.join(a.map_dir, "course")
     os.makedirs(work, exist_ok=True)
+    if a.steps == ["record"]:  # from the files the earlier steps wrote: no fetch needed
+        print("record:", json.dumps(write_record(work, course)))
+        return 0
     frame = cl.Frame(course["origin"])
     road = course["road"]
 
@@ -154,6 +165,8 @@ def main(argv=None):
         print("geometry:", json.dumps(g))
         preview(os.path.join(work, "meshes.npz"), os.path.join(work, "photo.jpg"),
                 os.path.join(work, "terrain_preview.jpg"))
+    if "record" in a.steps:
+        print("record:", json.dumps(write_record(work, course)))
     if "maps" in a.steps:
         mp = maps.build(c, course, frame, a.map_dir, course.get("speed_limit_kmh", 60.0))
         json.dump(mp, open(os.path.join(work, "maps.json"), "w"), indent=1)

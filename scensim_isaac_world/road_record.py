@@ -12,7 +12,9 @@ one side, one per side. The fields are 069's section with 066 R3's:
 
 In the YAML a side's field is a number for both sides or `{left: .., right: ..}`; in the .npz a
 side's field is two arrays, `<field>_left` and `<field>_right`, and `u` (m along the
-centreline, from 0, increasing) gives the stations. A field left out takes its default
+centreline, from 0, increasing) gives the stations. The .npz may hold the centreline too, `x`,
+`y` and optionally `z` at each station (map frame, m; a generated course's record, 086 C3),
+in place of the YAML's `centreline`; `u` is then the distance along it. A field left out takes its default
 everywhere. Every problem found is listed (`RoadRecordError`), with where it is.
 
 Who reads what: the Isaac road layer takes the section's shape (`detail_section`); the rails,
@@ -69,12 +71,14 @@ class RoadRecordError(ValueError):
 @dataclass
 class Stations:
     """The section at each station: `u` (n,), `common[field]` (n,), `side[field]` (2, n),
-    left then right, `text[field]` (2, n) of str."""
+    left then right, `text[field]` (2, n) of str; `xyz` (n, 3), the centreline at each
+    station when the record carries it, else None."""
 
     u: np.ndarray
     common: dict
     side: dict
     text: dict
+    xyz: np.ndarray = None
 
     def __len__(self):
         return len(self.u)
@@ -187,9 +191,10 @@ def load_stations(path, length=None, at=None):
     except (OSError, ValueError) as e:
         return None, [f"{at}: cannot read: {e}"]
     names = set(COMMON) | {f"{k}_{s}" for k in list(SIDE) + list(SIDE_TEXT) for s in SIDES}
-    unknown = sorted(set(arrays) - names - {"u"})
+    unknown = sorted(set(arrays) - names - {"u", "x", "y", "z"})
     if unknown:
-        problems.append(f"{at}: unknown array(s) {unknown} (u, {', '.join(sorted(names))})")
+        problems.append(f"{at}: unknown array(s) {unknown} (u, x, y, z, "
+                        f"{', '.join(sorted(names))})")
     u = arrays.get("u")
     if u is None or u.ndim != 1 or len(u) < 2 or u.dtype.kind not in "fi":
         return None, problems + [f"{at}: u must be two or more numbers, m along the "
@@ -229,12 +234,45 @@ def load_stations(path, length=None, at=None):
             for k, (d, _) in SIDE_TEXT.items()}
     for k in SIDE_TEXT:
         _text_check(k, text[k], at, problems)
-    return Stations(u, common, side, text), problems
+    xyz = None
+    if "x" in arrays or "y" in arrays:
+        xyz, why = _centreline(arrays, u)
+        if why:
+            problems.append(f"{at}: {why}")
+            xyz = None
+    elif "z" in arrays:
+        problems.append(f"{at}: z without x and y")
+    return Stations(u, common, side, text, xyz), problems
+
+
+def _centreline(arrays, u):
+    """The record's own centreline (n, 3) and why it is refused (or "")."""
+    n = len(u)
+    cols = []
+    for k in ("x", "y", "z"):
+        a = arrays.get(k)
+        if a is None:
+            if k == "z":
+                cols.append(np.zeros(n))
+                continue
+            return None, "x and y go together"
+        if a.shape != (n,) or a.dtype.kind not in "fi" or not np.all(np.isfinite(a)):
+            return None, f"{k} must be {n} finite numbers, one per station"
+        cols.append(a.astype(float))
+    xyz = np.stack(cols, axis=1)
+    along = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(xyz[:, :2], axis=0).T))])
+    off = float(np.max(np.abs(along - u)))
+    if off > 0.05 + 1e-3 * along[-1]:
+        return None, (f"u is not the distance along x, y (off by up to {off:.3f} m; "
+                      f"allowed {0.05 + 1e-3 * along[-1]:.3f})")
+    return xyz, ""
 
 
 def save_stations(path, st):
-    """Write `st` as a corridor's .npz (every field, both sides)."""
+    """Write `st` as a corridor's .npz (every field, both sides; its centreline, if any)."""
     arrays = {"u": np.asarray(st.u, dtype=float)}
+    if st.xyz is not None:
+        arrays.update({k: np.asarray(st.xyz[:, i], dtype=float) for i, k in enumerate("xyz")})
     arrays.update({k: np.asarray(v, dtype=float) for k, v in st.common.items()})
     for k, v in st.side.items():
         for i, s in enumerate(SIDES):
