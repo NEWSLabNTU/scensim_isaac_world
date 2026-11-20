@@ -793,15 +793,21 @@ class WheelSurfaces:
     """One vehicle's wheels on a surface map: what each wheel's friction value and stiffness
     should be for the next physics step. `tire_friction` and `vehicle_graph` are the rig's;
     `rig_peaks` its tire's (longitudinal slip, tan slip angle) at the peak at friction 1.0
-    (`surface_layer.rig_peaks`)."""
+    (`surface_layer.rig_peaks`). A car whose axles have their own tyres (scensim roadmap 091
+    W24) gives `tire_friction` and `rig_peaks` per wheel, as sequences of `wheels` items."""
 
     def __init__(self, surface_map: SurfaceMap, tire_friction, vehicle_graph, rig_peaks,
                  wheels=4):
         self.map = surface_map
-        self.tire_friction = tire_friction
-        self.vehicle_graph = tuple(tuple(p) for p in vehicle_graph)
-        self.rig_peaks = tuple(rig_peaks)
         self.n = wheels
+        self.tire_frictions = (list(tire_friction) if isinstance(tire_friction, (list, tuple))
+                               else [tire_friction] * wheels)
+        per_wheel = isinstance(rig_peaks[0], (list, tuple))
+        self.wheel_peaks = ([tuple(p) for p in rig_peaks] if per_wheel
+                            else [tuple(rig_peaks)] * wheels)
+        if len(self.tire_frictions) != wheels or len(self.wheel_peaks) != wheels:
+            raise ValueError(f"tire_friction and rig_peaks: one or {wheels} (one per wheel)")
+        self.vehicle_graph = tuple(tuple(p) for p in vehicle_graph)
         self.reset()
 
     def reset(self):
@@ -812,9 +818,10 @@ class WheelSurfaces:
         self.stiffness = [(1.0, 1.0)] * self.n  # (lateral, longitudinal), shares of the rig's
         self.surfaces = [None] * self.n
 
-    def class_peaks(self, c: SurfaceClass):
-        """Class `c`'s (kappa, tan alpha) at the peak: its own, or the rig's at its friction."""
-        k_rig, t_rig = (p * self.tire_friction for p in self.rig_peaks)
+    def class_peaks(self, c: SurfaceClass, i=0):
+        """Class `c`'s (kappa, tan alpha) at the peak: its own, or wheel `i`'s rig tire's at
+        its friction."""
+        k_rig, t_rig = (p * self.tire_frictions[i] for p in self.wheel_peaks[i])
         return (c.peak_slip if c.peak_slip is not None else k_rig,
                 math.tan(c.peak_slip_angle) if c.peak_slip_angle is not None else t_rig)
 
@@ -827,11 +834,11 @@ class WheelSurfaces:
         if surface is None:
             surface = self.surfaces[i]
             if surface is None:
-                return self.tire_friction
+                return self.tire_frictions[i]
         c = self.map.table[surface.cls]
         if target is None:
             target = peak_mu(self.map.table, surface, condition, speed)
-        peaks = self.class_peaks(c)
+        peaks = self.class_peaks(c, i)
         if self.mu[i] is None:
             self.mu[i], self.peaks[i] = target, peaks
         else:
@@ -839,10 +846,11 @@ class WheelSurfaces:
             self.mu[i] += (target - self.mu[i]) * k
             self.peaks[i] = tuple(a + (b - a) * k for a, b in zip(self.peaks[i], peaks))
         self.surfaces[i] = surface
-        mu_peak = self.tire_friction * self.mu[i]
+        mu_peak = self.tire_frictions[i] * self.mu[i]
         kp, tp = self.peaks[i]
         # PhysX's peak is where 2.3 mu F_z / C meets the class's: C scaled by mu over the peak
-        self.stiffness[i] = (self.rig_peaks[1] * mu_peak / tp, self.rig_peaks[0] * mu_peak / kp)
+        rk, rt = self.wheel_peaks[i]
+        self.stiffness[i] = (rt * mu_peak / tp, rk * mu_peak / kp)
         t = math.tan(slip_angle)
         rho = math.hypot(slip / kp, t / tp)
         g = past_peak(rho, sliding_share(c, abs(speed) * math.hypot(slip, t)))

@@ -402,6 +402,25 @@ class WheelSurfacesTest(unittest.TestCase):
             self.assertAlmostEqual(mu * surfaces.graph_at(VEHICLE_GRAPH, slip), 1.3)
             self.assertEqual(ws.stiffness[0], (1.0, 1.0))
 
+    def test_each_wheel_has_its_axles_tyre(self):
+        # scensim roadmap 091 W24: front and rear tyres apart, each wheel scaled from its own
+        rear = surface_layer.rig_peaks(RIG, {"lat_stiff_value": 34.0})
+        self.assertAlmostEqual(rear[1], RIG_PEAKS[1] / 2)
+        self.assertEqual(rear[0], RIG_PEAKS[0])
+        ws = surfaces.WheelSurfaces(smap(), [0.8, 0.8, 1.1, 1.1], VEHICLE_GRAPH,
+                                    [RIG_PEAKS, RIG_PEAKS, rear, rear])
+        for i, base in enumerate((0.8, 0.8, 1.1, 1.1)):
+            mu = ws.update(i, Surface("asphalt"), RoadCondition(), 20, 0.0, 1 / 60)
+            self.assertAlmostEqual(mu, base)
+            self.assertEqual(ws.stiffness[i], (1.0, 1.0))
+        self.assertAlmostEqual(ws.update(3, None, RoadCondition(), 20, 0.0, 1 / 60), 1.1)
+        own = next(c for c in TABLE.classes.values()
+                   if c.peak_slip is None and c.peak_slip_angle is None)
+        self.assertEqual(ws.class_peaks(own, 2), (rear[0] * 1.1, rear[1] * 1.1))
+        self.assertEqual(ws.class_peaks(own, 0), (RIG_PEAKS[0] * 0.8, RIG_PEAKS[1] * 0.8))
+        with self.assertRaises(ValueError):
+            surfaces.WheelSurfaces(smap(), [1.0, 1.0], VEHICLE_GRAPH, RIG_PEAKS)
+
     def test_past_the_peak_it_falls_toward_the_sliding_share_both_ways(self):
         c = TABLE["mud_wet"]
         ws = self.wheels()
@@ -427,7 +446,7 @@ class WheelSurfacesTest(unittest.TestCase):
         first = ws.update(0, s, cond, 10.0, 0.0, 1 / 60, None, math.atan(3 * tp))
         target = c.sliding + (1 - c.sliding) / 3
         step = 10.0 / 60 / c.relaxation
-        self.assertAlmostEqual(first / ws.tire_friction / ws.mu[0], 1 + (target - 1) * step)
+        self.assertAlmostEqual(first / ws.tire_frictions[0] / ws.mu[0], 1 + (target - 1) * step)
         # at a crawl, no lag
         slow = ws.update(0, s, cond, 0.5, 0.0, 1 / 60, None, math.atan(3 * tp))
         self.assertAlmostEqual(slow / ws.mu[0], target)

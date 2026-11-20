@@ -71,13 +71,16 @@ PEAK_SPAN = 2.3
 STIFFNESS_IN_USE = 0.9
 
 
-def rig_peaks(p):
+def rig_peaks(p, tire=None):
     """The rig's tire at friction 1.0: (longitudinal slip, tan slip angle) at its peak, from
     aib's VehicleParams `p` (lateral stiffness per N of load, longitudinal per g at the
-    nominal load mass g / 4)."""
+    nominal load mass g / 4). `tire`: one axle's tyre fields (aib's `wheel_tire`, scensim
+    roadmap 091 W24) in place of the car's."""
+    long_stiff = (tire or {}).get("long_stiff_value", p.long_stiff_value)
+    lat_stiff = (tire or {}).get("lat_stiff_value", p.lat_stiff_value)
     load = p.mass * G / 4
-    return (PEAK_SPAN * load / (STIFFNESS_IN_USE * p.long_stiff_value * G),
-            PEAK_SPAN / (STIFFNESS_IN_USE * p.lat_stiff_value))
+    return (PEAK_SPAN * load / (STIFFNESS_IN_USE * long_stiff * G),
+            PEAK_SPAN / (STIFFNESS_IN_USE * lat_stiff))
 
 
 def kinematic_wheels(dims, center, physics=None):
@@ -226,9 +229,15 @@ class SurfaceLayer:
             return
         ws = self.wheels.get(vehicle.path)
         if ws is None:
+            # each wheel's own tyre: its axle's (aib's wheel_tires; one for all on an older aib)
+            tires = getattr(vehicle, "wheel_tires", None)
+            if tires:
+                friction = [float(t["tire_friction"]) for t in tires]
+                peaks = [rig_peaks(vehicle.p, t) for t in tires]
+            else:
+                friction, peaks = vehicle.p.tire_friction, rig_peaks(vehicle.p)
             ws = self.wheels[vehicle.path] = surfaces.WheelSurfaces(
-                self.map, vehicle.p.tire_friction, vehicle.p.friction_vs_slip,
-                rig_peaks(vehicle.p), len(vehicle.wheel_paths))
+                self.map, friction, vehicle.p.friction_vs_slip, peaks, len(vehicle.wheel_paths))
         ox, oy, _ = self.origin
         for i, (c, w) in enumerate(zip(vehicle.contacts, vehicle.wheel_states)):
             s = self.map.at(c.position[0] + ox, c.position[1] + oy, self.label(c.shape)) \
