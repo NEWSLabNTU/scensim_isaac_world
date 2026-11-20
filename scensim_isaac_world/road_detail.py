@@ -194,6 +194,7 @@ class Corridor:
     grade: object = None
     rocks: object = None  # rocks.Zones: the rock cover by zone (R4); None: no rocks
     taper: float = 0.0
+    stations: object = None  # road_record.Stations: the section per station (086 C1)
 
     def __post_init__(self):
         line = np.asarray(self.centreline, dtype=float)

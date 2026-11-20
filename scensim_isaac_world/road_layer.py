@@ -13,11 +13,13 @@ base is smooth, so over a tire's patch it is a plane.
 The ego's PhysX travel is the spec's plus PX_EXTRA (`vehicle_params`), its frame raised to
 match, so PhysX's rigid limit lies beyond the corner's bump stop (R2).
 
+    schema: 1                         # the road record's (086 C1; absent: 1)
     corridors:
       - centreline: [[x, y, z], ...]  # the map frame, m; z the base road's (optional)
         seed: 1
         roughness: {cls: C}           # road_detail.Roughness's fields
-        section: {half_width: 1.5, crown: 0.0}   # Section's: a level forest road
+        section: {half_width: 1.5, crown: 0.0}   # road_record's fields: a level forest road
+        # or, per station: stations: forest.npz  (beside this file; road_record)
         ruts: {}                      # Ruts' defaults; absent: none
         potholes: {per_100m: 2}
         washboard: [{u0: 120, u1: 180, pitch: 0.5}]
@@ -53,6 +55,7 @@ import numpy as np
 
 from . import road_contact as rc
 from . import road_detail as rd
+from . import road_record as rr
 from . import rocks as rk
 
 log = logging.getLogger("scensim_isaac_world")
@@ -73,11 +76,13 @@ class RoadDetailError(ValueError):
 
 # A corridor's keys that are one of road_detail's (or rocks') dataclasses: its fields by name.
 def _kinds():
-    return {"roughness": rd.Roughness, "section": rd.Section, "ruts": rd.Ruts,
+    return {"roughness": rd.Roughness, "ruts": rd.Ruts,
             "potholes": rd.Potholes, "water_bars": rd.WaterBars, "rocks": rk.Zones}
 
 
 TOP_KEYS = {
+    "schema": f"the road record's schema, {rr.SCHEMA} (absent: {rr.SCHEMA}); a newer one is "
+              "refused",
     "corridors": "a list of corridors, each its centreline and its features",
     "ground": "the prims of the world's own road ground, which the rocks do not collide with "
               "(a list of prim paths; optional)",
@@ -86,7 +91,10 @@ CORRIDOR_KEYS = {
     "centreline": "two or more [x, y] or [x, y, z] in the map frame, m (z: the base road's)",
     "seed": "an integer: the same seed, the same road (default the corridor's index)",
     "roughness": "ISO 8608 roughness (a mapping; absent: class D)",
-    "section": "the cross-section: crown, shoulder, ditch (a mapping; absent: defaults)",
+    "section": "the cross-section, the same along the road: road_record's fields (a mapping;"
+               " absent: defaults)",
+    "stations": "the cross-section per station: an .npz beside this file (road_record; "
+                "instead of section)",
     "ruts": "two wheel ruts and a windrow (a mapping, {} for defaults; absent: none)",
     "potholes": "Poisson potholes, more in sags (a mapping; absent: none)",
     "washboard": "a list of corrugation zones, each u0 and u1 m along the centreline",
@@ -120,12 +128,16 @@ def keys():
         out[f"corridors[].{k}"] = v
     for name, cls in _kinds().items():
         out[f"corridors[].{name}.*"] = _fields(cls)
+    out["corridors[].section.*"] = {k: d for k, (d, _) in rr.keys().items()}
     out["corridors[].washboard[].*"] = _fields(rd.Washboard)
     return out
 
 
-def parse(data, where=FILE):
-    """The corridors of a road_detail.yaml's contents; RoadDetailError lists every problem."""
+def parse(data, where=FILE, base=None, notes=None):
+    """The corridors of a road_detail.yaml's contents; RoadDetailError lists every problem.
+    `base`: the directory a corridor's `stations` file is in (the YAML's). A section the road
+    layer cannot shape the road with yet (`road_record.detail_section`) is a problem, or, with
+    a `notes` list, a note there and the first station's left side for the detail."""
     problems = []
     kinds = _kinds()
     out = []
@@ -133,7 +145,13 @@ def parse(data, where=FILE):
         raise RoadDetailError(f"{where}: not a mapping (corridors, ground)")
     unknown = set(data or {}) - set(TOP_KEYS)
     if unknown:
-        problems.append(f"{where}: unknown key(s) {sorted(unknown)} (corridors, ground)")
+        problems.append(f"{where}: unknown key(s) {sorted(unknown)} ({', '.join(TOP_KEYS)})")
+    schema = (data or {}).get("schema", rr.SCHEMA)
+    if isinstance(schema, bool) or not isinstance(schema, int) or schema < 1:
+        problems.append(f"{where}: schema must be a whole number, {rr.SCHEMA} for this reader")
+    elif schema > rr.SCHEMA:
+        problems.append(f"{where}: schema {schema} is newer than this reader's ({rr.SCHEMA}): "
+                        "update scensim_isaac_world")
     corridors = (data or {}).get("corridors") or []
     if not isinstance(corridors, list):
         problems.append(f"{where}: corridors must be a list")
@@ -195,22 +213,59 @@ def parse(data, where=FILE):
                 and not args["roughness"].gd0:
             problems.append(f"{at}.roughness: class {args['roughness'].cls} is not ISO 8608's "
                             f"A-H")
+        stations, section = _section(c, line, base, at, problems, notes)
+        if section is not None:
+            args["section"] = section
         if "rocks" in args and not ground:
             # the world's ground not filtered out for the rocks: loose ones only where it
             # does not hold them over the true surface (rocks.place)
             args["rocks"] = dataclasses.replace(args["rocks"], loose_below=rk.LOOSE_BELOW)
         out.append(rd.Corridor(line, seed=int(c.get("seed", k)), washboard=tuple(zones),
-                               taper=float(c.get("taper", 0.0)), **args))
+                               taper=float(c.get("taper", 0.0)), stations=stations, **args))
     if problems:
         raise RoadDetailError("\n".join(problems))
     return out
 
 
-def load(path):
+def _section(c, line, base, at, problems, notes):
+    """A corridor's stations and the road layer's section from them: `section:` constants or
+    a `stations:` file (086 C1)."""
+    if "stations" in c and "section" in c:
+        problems.append(f"{at}: section or stations, not both")
+        return None, None
+    if "stations" in c:
+        name = c["stations"]
+        if not isinstance(name, str) or not name.endswith(".npz"):
+            problems.append(f"{at}.stations: an .npz file's name, beside {FILE}")
+            return None, None
+        path = os.path.join(base or ".", name)
+        d = np.diff(line[:, :2], axis=0)
+        st, found = rr.load_stations(path, float(np.hypot(d[:, 0], d[:, 1]).sum()),
+                                     f"{at}.stations ({name})")
+    else:
+        st, found = rr.from_constants(c.get("section"), f"{at}.section")
+    problems.extend(found)
+    if st is None or found:
+        return st, None
+    section, why = rr.detail_section(st, rd.Section)
+    if section is None:
+        say = (f"{at}: the Isaac road layer shapes a section like this from roadmap 086 C5 "
+               f"({why})")
+        if notes is None:
+            problems.append(say)
+            return st, None
+        notes.append(say + "; the detail here takes its first station's left side")
+        section = rd.Section(**{k: float(st.common[k][0]) if k in st.common
+                                else float(st.side[k][0, 0]) for k in rr.DETAIL})
+    return st, section
+
+
+def load(path, notes=None):
     import yaml
 
     with open(path) as f:
-        return parse(yaml.safe_load(f) or {}, str(path))
+        return parse(yaml.safe_load(f) or {}, str(path), os.path.dirname(os.path.abspath(path)),
+                     notes)
 
 
 def find(map_or_file, state=None):
@@ -243,6 +298,8 @@ def describe(corridors):
                          f"{c.rocks.ditch:g}")
         if c.taper:
             parts.append(f"taper {c.taper:g} m")
+        if c.stations is not None and len(c.stations) > 1:
+            parts.append(f"section at {len(c.stations)} stations")
         out.append(f"corridor {k}: " + ", ".join(parts))
     return out
 
@@ -322,12 +379,15 @@ def main(argv=None):
     if not os.path.exists(path):
         print(f"{path}: no road detail", file=sys.stderr)
         return 1
+    notes = []
     try:
-        corridors = load(path)
+        corridors = load(path, notes)
     except RoadDetailError as e:
         print(f"{path}: refused\n{e}", file=sys.stderr)
         return 1
     print(f"{path}: {len(corridors)} corridor(s)")
+    for n in notes:
+        print(f"  note: {n}")
     for line in describe(corridors):
         print(f"  {line}")
     if args.command == "preview":
