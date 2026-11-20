@@ -45,7 +45,7 @@ from . import vehicle_assets
 from . import walkers as walker_gait
 from .catalogue import check_ego, ego_body, ego_model, load_ego
 from . import road_layer
-from . import authored as authored_stage
+from . import authored as authored_stage, stage_record
 
 # SimReady's label attribute and the Q-codes for a body whose asset has none (084)
 QCODE_ATTR = "semantics:labels:wikidata_qcode"
@@ -155,6 +155,7 @@ class IsaacWorld(WorldBase):
         # 091 W13: an authored world's values the server replaced for the run, `{attribute
         # path: {"authored": ..., "used": ...}}` (W15 puts them in `provenance.stage`)
         self.stage_overrides = {}
+        self.stage_provenance = None
         self.authored_ground = None  # its reader (`authored.GroundReader`), None: not authored
         self.sky = scenario_sky.Sky()  # the scenario's weather and time of day (047)
         self.sky_moved_at = 0.0  # the clock when an animated time last moved the sun, s
@@ -342,12 +343,14 @@ class IsaacWorld(WorldBase):
         world without one gets the empty map, every wheel on the reference class (054 T1: the
         tire's curve is the class's on any ground)."""
         self.authored_ground = None
+        self.stage_provenance = None
         self.surface = self._no_map()
         entry = self.surface_maps.get(usd)
         if entry is None:
             return
         if entry.authored:
             self._authored_ground(entry.surfaces)
+            self._stage_record(usd, entry)
         path, origin = entry.surfaces, entry.origin
         map_dir = entry.map_dir or os.path.dirname(path)
         roots = tuple(dict.fromkeys(r for r in (entry.state, map_dir) if r))
@@ -393,6 +396,25 @@ class IsaacWorld(WorldBase):
         self.surface.ground = self.authored_ground
         log.info("authored world: the stage's ground wins where no zone covers it "
                  "(token, then material, then the label's default)")
+
+    def _stage_record(self, usd, entry):
+        """An authored world's `provenance.stage` (091 W15, design 3.4), once per load, into
+        the map's state directory (`stage_record.FILE`) for the run's result; file hashes kept
+        there by size and mtime. An unresolved dependency refuses the load, naming it."""
+        where = entry.state or entry.map_dir or os.path.dirname(entry.surfaces)
+        cache = stage_record.HashCache(os.path.join(where, stage_record.CACHE))
+        try:
+            rec = stage_record.record(usd, self.stage_overrides,
+                                      {"surfaces.yaml": entry.surfaces,
+                                       "road_detail.yaml": entry.road}, cache)
+        except stage_record.Unresolved as e:
+            raise surfaces.SurfaceError(f"authored world: {e}") from None
+        self.stage_provenance = rec
+        out = stage_record.write(where, rec)
+        h = rec["hashing"]
+        log.info("authored world: stage %s sha256 %s (%d layers, %d assets; %d of %d files "
+                 "hashed in %.1f s) -> %s", rec["root"], rec["sha256"][:12], len(rec["layers"]),
+                 len(rec["assets"]), h["files_hashed"], h["files"], h["seconds"], out)
 
     def _authored_physics(self):
         """An authored world's own physics scenes off for the run (the server's scene steps;
