@@ -109,6 +109,16 @@ def write_record(work, course):
     return record.write(work, record.build(c, course, m))
 
 
+def saved_centreline(work):
+    """The centreline the `centreline` step saved (centreline.npz) and its hairpins (centreline.json),
+    as `scenario.build` takes them: a published course has no raw tiles to rebuild it from."""
+    with np.load(os.path.join(work, "centreline.npz")) as z:
+        c = {k: z[k] for k in z.files}
+    with open(os.path.join(work, "centreline.json")) as f:
+        hairpins = json.load(f)["hairpins"]
+    return c, hairpins
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("course")
@@ -121,6 +131,9 @@ def main(argv=None):
     os.makedirs(work, exist_ok=True)
     if a.steps == ["record"]:  # from the files the earlier steps wrote: no fetch needed
         print("record:", json.dumps(write_record(work, course)))
+        return 0
+    if a.steps == ["scenario"]:  # likewise, from centreline.npz and .json (a published course)
+        print("scenario:", json.dumps(scenario.build(*saved_centreline(work), course, a.map_dir)))
         return 0
     frame = cl.Frame(course["origin"])
     road = course["road"]

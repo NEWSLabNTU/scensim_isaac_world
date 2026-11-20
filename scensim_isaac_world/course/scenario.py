@@ -23,9 +23,9 @@ XOSC = """<?xml version="1.0"?>
 <OpenSCENARIO>
 \t<FileHeader author="scensim_isaac_world.course" date="2026-10-29T00:00:00+00:00" description="{title}: {run_desc} in drift_mustang, Autoware driving (scensim roadmap 058)" revMajor="1" revMinor="2" />
 \t<ParameterDeclarations />
-\t<CatalogLocations><VehicleCatalog><Directory path="$(find-pkg-share sim_vehicle_spec)/catalogs" /></VehicleCatalog></CatalogLocations>
+\t<CatalogLocations><VehicleCatalog><Directory path="$(env SCENSIM_VEHICLES)" /></VehicleCatalog></CatalogLocations>
 \t<RoadNetwork>
-\t\t<LogicFile filepath="{map_dir}" />
+\t\t<LogicFile filepath="$(env SCENSIM_MAPS)/{map_name}" />
 \t</RoadNetwork>
 \t<Entities>
 \t\t<ScenarioObject name="ego">
@@ -177,7 +177,7 @@ def build(c, hairpins, course, map_dir):
     run, run_desc = ("lap", "a lap") if closed else ("down", "down the section")
     path = os.path.join(map_dir, "scenarios", f"{name}_{run}.xosc")
     with open(path, "w") as f:
-        f.write(XOSC.format(title=name, map_dir=os.path.realpath(map_dir), name=name, run=run,
+        f.write(XOSC.format(title=name, map_name=os.path.basename(os.path.realpath(map_dir)), name=name, run=run,
                             run_desc=run_desc,
                             x0=x0, y0=y0, z0=z0 + 0.3, h0=h0, x1=x1, y1=y1, z1=z1, h1=h1,
                             timeout=TIMEOUT))
