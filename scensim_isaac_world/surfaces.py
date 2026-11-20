@@ -372,6 +372,13 @@ class Surface:
     zone: str = None  # the top zone there, if any
     soil: str = None  # the soil model of the zone that gave the class, if any
     soil_zone: str = None  # that zone, when it has one
+    # 091 W13: an authored material's peak friction, absolute as a class's `mu` (the tire's on
+    # that ground), on `cls` the reference class's curve; None: the class's
+    mu: float = None
+    # what decided the class: `zone`, or on an authored map `token`, `material` or `no_map`
+    # (`authored.SOURCES`); on any other map `label`. A record, not the ground: two surfaces
+    # that differ only here are the same ground
+    source: str = field(default=None, compare=False)
 
 
 @dataclass
@@ -392,8 +399,11 @@ class SurfaceMap:
         return [(z.id, z.cls, self.table[z.cls].unvalidated) for z in self.zones
                 if z.soil and z.cls in self.table.classes and self.table[z.cls].unvalidated]
 
-    def at(self, x, y, label=None):
-        """The surface at map point (x, y) over ground labelled `label` (None: unlabelled)."""
+    def at(self, x, y, label=None, ground=None):
+        """The surface at map point (x, y) over ground labelled `label` (None: unlabelled).
+        `ground`: an authored map's `authored.Ground` of the collider there (091 W13), which
+        decides where no zone gives the class: its token's class, or its material's friction on
+        the reference class's curve, or (`no_map`) the label's default as without it."""
         cls = wetness = depth = top = None
         soil = soil_zone = None
         for z in reversed(self.zones):
@@ -409,9 +419,17 @@ class SurfaceMap:
                 soil_zone = z.id if z.soil else None
             if cls and wetness and depth is not None:
                 break
-        if cls is None:
+        mu = None
+        if cls is not None:
+            source = "zone"
+        elif ground is not None and ground.source == "token":
+            cls, source = ground.cls, "token"
+        elif ground is not None and ground.source == "material":
+            cls, mu, source = self.table.reference, ground.mu, "material"
+        else:
             cls = self.defaults.get(label or UNLABELLED, self.defaults[UNLABELLED])
-        return Surface(cls, wetness, depth, top, soil or None, soil_zone)
+            source = "label" if ground is None else "no_map"
+        return Surface(cls, wetness, depth, top, soil or None, soil_zone, mu, source)
 
 
 def find(map_or_file):
@@ -836,7 +854,13 @@ class WheelSurfaces:
             if surface is None:
                 return self.tire_frictions[i]
         c = self.map.table[surface.cls]
-        if target is None:
+        if target is None and surface.mu is not None:
+            # an authored material (091 W13): an absolute peak as a class's `mu` is, so realised
+            # as written on a rig that realises the reference class's (the table's contract);
+            # only the scenario's factor scales it, no wetness (an indoor floor)
+            target = (condition.friction_scale * surface.mu
+                      / self.map.table[self.map.table.reference].mu)
+        elif target is None:
             target = peak_mu(self.map.table, surface, condition, speed)
         peaks = self.class_peaks(c, i)
         if self.mu[i] is None:

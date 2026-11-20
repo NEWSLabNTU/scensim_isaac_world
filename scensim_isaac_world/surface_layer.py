@@ -99,13 +99,18 @@ def kinematic_wheels(dims, center, physics=None):
 
 class SurfaceLayer:
     def __init__(self, stage, surface_map, map_origin=(0.0, 0.0, 0.0), apply_force=None,
-                 make_tiles=None):
+                 make_tiles=None, ground=None):
         """`apply_force(body path, force, position)`, world frame, N and m: a force on a body
         for the next physics step (the soil's resistance); None: the soil sets friction only.
         `make_tiles(zone, spacing, origin)`: the ground of a zone with `ground_z`, an object with
         `update(grid)`, `clear()` and `remove()` (`soil_tiles.SoilTiles`); None: no ruts in
-        the collision."""
+        the collision. `ground`: an authored map's reader (`authored.GroundReader`, 091 W13),
+        a collider path to its authored ground; None: the map is not authored."""
         self.stage = stage
+        self.ground = ground
+        # collider path -> {source: (class, mu)}: what decided its ground, each source once
+        # (`decided`), so a wrong friction can be traced to a zone, a token, a material or none
+        self.sources = {}
         self.base = surface_map  # the map in use (loaded or named); `map`: under the condition
         self.map = surface_map
         self.own = surface_map  # the world's own map, which a release or new owner goes back to
@@ -240,8 +245,11 @@ class SurfaceLayer:
                 self.map, friction, vehicle.p.friction_vs_slip, peaks, len(vehicle.wheel_paths))
         ox, oy, _ = self.origin
         for i, (c, w) in enumerate(zip(vehicle.contacts, vehicle.wheel_states)):
-            s = self.map.at(c.position[0] + ox, c.position[1] + oy, self.label(c.shape)) \
+            s = self.map.at(c.position[0] + ox, c.position[1] + oy, self.label(c.shape),
+                            self.ground(c.shape) if self.ground is not None else None) \
                 if c.on_ground else None
+            if s is not None:
+                self._decided(c.shape, s)
             target = None
             if s is not None and s.soil:
                 target = self._soil(vehicle, i, c, w, s, speed, dt)
@@ -263,6 +271,22 @@ class SurfaceLayer:
                          f" {s.wetness}" if s.wetness else "",
                          "" if s.water_depth is None else f" water {s.water_depth * 1000:.1f} mm",
                          f" (zone {s.zone})" if s.zone else "", mu)
+
+    def _decided(self, path, s):
+        """Note what decided collider `path`'s ground (the first time for each source)."""
+        seen = self.sources.setdefault(path, {})
+        if s.source in seen:
+            return
+        seen[s.source] = (s.cls, s.mu)
+        log.info("ground %s: %s, %s%s", path, s.source, s.cls,
+                 "" if s.mu is None else f" at mu {s.mu:g}")
+
+    def decided(self):
+        """`{collider path: {source: {"class": ..., "mu": ...}}}` for every collider a wheel
+        has been on since the load: the run's record of where each ground's friction came
+        from (091 W13; W15 puts it in `provenance.stage`)."""
+        return {p: {src: {"class": c, "mu": m} for src, (c, m) in d.items()}
+                for p, d in sorted(self.sources.items())}
 
     def place(self, vehicles, dt):
         """Before a substep: the plates of the zones with their own ground under each aib
@@ -584,6 +608,7 @@ class MapFiles(NamedTuple):
     road: Optional[str] = None
     state: Optional[str] = None
     map_dir: Optional[str] = None
+    authored: bool = False  # 091 W13: the stage's authored ground wins (`authored`)
 
     @classmethod
     def of(cls, entry):
@@ -630,8 +655,13 @@ def register(world_files, state_dir=None):
                 road_layer.load(road, classes=set((table or surfaces.load_classes()).classes))
             except road_layer.RoadDetailError as e:
                 raise surfaces.SurfaceError(str(e)) from e
+        authored = w.get("authored", False)
+        if not isinstance(authored, bool):
+            raise surfaces.SurfaceError(f"{world_file}: authored: {authored!r} is not true or "
+                                        "false")
         out[os.path.realpath(usd)] = MapFiles(
-            str(path), tuple(w.get("map_origin") or (0.0, 0.0, 0.0)), str(road), state, map_dir)
+            str(path), tuple(w.get("map_origin") or (0.0, 0.0, 0.0)), str(road), state, map_dir,
+            authored)
     return out
 
 
