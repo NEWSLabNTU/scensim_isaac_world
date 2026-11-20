@@ -26,6 +26,13 @@ CACHE = "stage-hashes.json"  # beside it: {path: [size, mtime_ns, sha256]}
 CHUNK = 1 << 20
 
 
+def _umask_mode():
+    """0666 less the umask: what open() would give, since mkstemp makes its file 0600."""
+    m = os.umask(0)
+    os.umask(m)
+    return 0o666 & ~m
+
+
 class Unresolved(ValueError):
     """A dependency of the stage that does not resolve to a file."""
 
@@ -72,6 +79,7 @@ class HashCache:
         fd, tmp = tempfile.mkstemp(prefix=".hashes.", dir=d)
         with os.fdopen(fd, "w") as f:
             json.dump({k: list(v) for k, v in sorted(self.table.items())}, f)
+        os.chmod(tmp, _umask_mode())
         os.replace(tmp, self.path)
 
 
@@ -162,6 +170,7 @@ def write(directory, rec):
         with os.fdopen(fd, "w") as f:
             json.dump(rec, f, indent=2, sort_keys=True)
             f.write("\n")
+        os.chmod(tmp, _umask_mode())
         os.replace(tmp, os.path.join(directory, FILE))
     except BaseException:
         if os.path.exists(tmp):

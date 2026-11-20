@@ -121,6 +121,9 @@ class Record(unittest.TestCase):
         with open(out) as f:
             self.assertEqual(json.load(f), {"sha256": "x"})
         self.assertEqual(os.listdir(os.path.join(self.d, "state")), [stage_record.FILE])
+        m = os.umask(0)
+        os.umask(m)
+        self.assertEqual(os.stat(out).st_mode & 0o777, 0o666 & ~m)  # not mkstemp's 0600
 
 
 @unittest.skipIf(Usd is None, "no pxr")
