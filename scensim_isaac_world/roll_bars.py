@@ -39,8 +39,9 @@ def qrot(q, v):
 class _Bars:
     def __init__(self, p):
         (front, rear), sag = p.suspension()
-        self.frame_z = p.wheel_radius + p.suspension_travel - sag
-        self.radius, self.travel, self.wheel_weight = p.wheel_radius, p.suspension_travel, \
+        px_travel = p.travels()[0]  # PhysX's (aib physx_travel, scensim issue 077)
+        self.frame_z = p.wheel_radius + px_travel - sag
+        self.radius, self.travel, self.wheel_weight = p.wheel_radius, px_travel, \
             p.wheel_mass * G
         self.attach = [((p.wheel_base if f else 0.0), side * p.wheel_tread / 2)
                        for f, side in ORDER]

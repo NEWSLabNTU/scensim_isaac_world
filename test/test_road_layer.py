@@ -21,8 +21,9 @@ def params(travel=0.2):
         m = 1760 * 0.47 / 2, 1760 * 0.53 / 2
         w = 2 * math.pi * 1.6
         return tuple((s, s * w * w, 2 * 0.45 * math.sqrt(s * w * w * s)) for s in m), 9.81 / w / w
-    return SimpleNamespace(suspension_travel=travel, wheel_radius=0.37, wheel_width=0.235,
-                           wheel_base=3.005, wheel_tread=1.667, suspension=suspension)
+    return SimpleNamespace(suspension_travel=0.2, wheel_radius=0.37, wheel_width=0.235,
+                           wheel_base=3.005, wheel_tread=1.667, suspension=suspension,
+                           travels=lambda: (travel, 0.2))
 
 
 class Parse(unittest.TestCase):
@@ -101,12 +102,31 @@ class Schema(unittest.TestCase):
         self.assertLess(h.min(), -0.2)  # the ditches
 
 
+class Travel(unittest.TestCase):
+    """PhysX's travel on a road detail, with aib's own (scensim issue 077)."""
+
+    def test_physx_travel_is_longer_and_the_real_one_stays(self):
+        from aib.params import VehicleParams
+
+        p = road_layer.vehicle_params(VehicleParams(suspension_travel=0.2))
+        self.assertEqual(p.travels(), (0.2 + road_layer.PX_EXTRA, 0.2))
+        # a car whose PhysX travel is already longer (the sweep's 0.50 m) keeps it
+        p = road_layer.vehicle_params(VehicleParams(suspension_travel=0.2, physx_travel=0.5))
+        self.assertEqual(p.travels(), (0.5, 0.2))
+
+    def test_the_layer_turns_aibs_bump_stop_off(self):
+        v = SimpleNamespace(p=params(0.5), bump_enabled=True, path="/ego")
+        car = road_layer._Car(v)
+        self.assertFalse(v.bump_enabled)
+        self.assertAlmostEqual(car.frame_z, 0.37 + 0.5 - v.p.suspension()[1])
+
+
 class Layer(unittest.TestCase):
     def car(self, z0=0.0, grade=0.0, x=10.0):
         """A vehicle standing at rest on a base of `grade`, PhysX's frame raised (R2)."""
         p = params(0.2 + road_layer.PX_EXTRA)
         (_, _), sag = p.suspension()
-        frame_z = p.wheel_radius + p.suspension_travel - sag
+        frame_z = p.wheel_radius + p.travels()[0] - sag
         pitch = -math.atan(grade)
         q = (math.cos(pitch / 2), 0.0, math.sin(pitch / 2), 0.0)
         hits = []
@@ -116,7 +136,7 @@ class Layer(unittest.TestCase):
                                                                   z0 + grade * hx)))
         pos = (x, 0.0, z0 + grade * x + frame_z / math.cos(pitch) - frame_z)
         return SimpleNamespace(path="/ego", p=p, last=(pos, q, (0.0, 0.0, 0.0)), contacts=hits,
-                               wheel_paths=[0] * 4, tire_angle=0.0)
+                               wheel_paths=[0] * 4, tire_angle=0.0, bump_enabled=True)
 
     def test_no_detail_no_force_on_a_grade(self):
         """A flat corridor with no roughness on a 10 % base: the plane base, no push."""

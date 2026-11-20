@@ -534,7 +534,7 @@ class FakeVehicle:
                                  min_active_slip_denominator=4.0,
                                  suspension=lambda: (((430.0, 30000.0, 3000.0),
                                                       (450.0, 32000.0, 3200.0)), 0.14),
-                                 suspension_travel=0.2, wheel_mass=20.0, **vars(RIG))
+                                 suspension_travel=0.2, travels=lambda: (0.2, 0.2), wheel_mass=20.0, **vars(RIG))
         self.contacts = contacts
         self.wheel_states = [SimpleNamespace(slip=0.0, slip_angle=0.0, rotation_speed=0.0)] * 4
         self.written = {}

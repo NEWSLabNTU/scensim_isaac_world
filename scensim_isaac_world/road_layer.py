@@ -10,8 +10,10 @@ surface layer's times the tire's load over PhysX's (`SurfaceLayer.road`). The ba
 wheel is the plane through the four wheels' last ground hits, moved to the wheel's own hit: the
 base is smooth, so over a tire's patch it is a plane.
 
-The ego's PhysX travel is the spec's plus PX_EXTRA (`vehicle_params`), its frame raised to
-match, so PhysX's rigid limit lies beyond the corner's bump stop (R2).
+The ego's PhysX travel is at least the spec's plus PX_EXTRA (`vehicle_params`, aib's
+`physx_travel`), its frame raised to match, so PhysX's rigid limit lies beyond the corner's
+bump stop (R2). The corner has its own bump stop, so aib's (scensim issue 077) is off for every
+car the layer steps.
 
     schema: 1                         # the road record's (086 C1; absent: 1)
     corridors:
@@ -448,8 +450,10 @@ def load_ground(path):
 
 
 def vehicle_params(p):
-    """aib VehicleParams `p` with PhysX's travel PX_EXTRA longer (its frame rises with it)."""
-    return dataclasses.replace(p, suspension_travel=p.suspension_travel + PX_EXTRA)
+    """aib VehicleParams `p` with PhysX's travel at least PX_EXTRA longer than the real one
+    (its frame rises with it; the real travel stays `suspension_travel`)."""
+    return dataclasses.replace(p, physx_travel=max(p.travels()[0],
+                                                   p.suspension_travel + PX_EXTRA))
 
 
 class RoadLayer:
@@ -531,14 +535,15 @@ class _Car:
         p = vehicle.p
         self.v = vehicle
         (front, rear), self.sag = p.suspension()
-        real = p.suspension_travel - PX_EXTRA
-        self.frame_z = p.wheel_radius + p.suspension_travel - self.sag
+        px_travel, real = p.travels()
+        self.frame_z = p.wheel_radius + px_travel - self.sag
+        vehicle.bump_enabled = False  # the corner below has its own bump stop
         self.attach = [((p.wheel_base if f else 0.0), side * p.wheel_tread / 2)
                        for f, side in ORDER]
         sides = {(f, side): i for i, (f, side) in enumerate(ORDER)}
         self.contact = rc.TireContact(
             [rc.Corner(*(front if f else rear), real, p.wheel_radius, p.wheel_width,
-                       px_travel=p.suspension_travel) for f, _ in ORDER],
+                       px_travel=px_travel) for f, _ in ORDER],
             bars=rc.anti_roll_bars((sides[(True, 1)], sides[(True, -1)]),
                                    (sides[(False, 1)], sides[(False, -1)]), front[1], rear[1]),
             kernel="auto")

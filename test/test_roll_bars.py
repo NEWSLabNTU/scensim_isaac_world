@@ -17,7 +17,7 @@ def params():
     """aib's VehicleParams, the parts the bars read: Model 3-like axles."""
     front, rear = (430.0, 30000.0, 3000.0), (450.0, 32000.0, 3200.0)
     return SimpleNamespace(suspension=lambda: ((front, rear), 0.14), wheel_radius=0.33,
-                           suspension_travel=0.2, wheel_mass=20.0, wheel_base=2.875,
+                           suspension_travel=0.2, travels=lambda: (0.2, 0.2), wheel_mass=20.0, wheel_base=2.875,
                            wheel_tread=1.58)
 
 
