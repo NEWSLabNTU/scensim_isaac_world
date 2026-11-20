@@ -45,6 +45,7 @@ from . import vehicle_assets
 from . import walkers as walker_gait
 from .catalogue import check_ego, ego_body, ego_model, load_ego
 from . import road_layer
+from . import authored as authored_stage
 
 # SimReady's label attribute and the Q-codes for a body whose asset has none (084)
 QCODE_ATTR = "semantics:labels:wikidata_qcode"
@@ -151,6 +152,10 @@ class IsaacWorld(WorldBase):
         self.wheels_pub = None  # wheels.Publisher, made with the first ego
         self.wheels_every = wheel_topic.Decimator(wheel_topic.PERIOD)
         self.surface = None  # SurfaceLayer of the loaded world, if it has a surface map
+        # 091 W13: an authored world's values the server replaced for the run, `{attribute
+        # path: {"authored": ..., "used": ...}}` (W15 puts them in `provenance.stage`)
+        self.stage_overrides = {}
+        self.authored_ground = None  # its reader (`authored.GroundReader`), None: not authored
         self.sky = scenario_sky.Sky()  # the scenario's weather and time of day (047)
         self.sky_moved_at = 0.0  # the clock when an animated time last moved the sun, s
         self.latitude = 0.0  # the loaded map's, deg
@@ -315,6 +320,9 @@ class IsaacWorld(WorldBase):
                          names.carla_usd_root())
             add_reference_to_stage(usd_path=source, prim_path=ENVIRONMENT)
             plane.SetActive(False)
+            self.stage_overrides = {}
+            if entry is not None and entry.authored:
+                self._authored_physics()
             self.ground = list(ground_paths)
             self.loaded_usd = usd
         else:
@@ -333,10 +341,13 @@ class IsaacWorld(WorldBase):
         """The world's surface map, read again at every load (an edit needs no restart); a
         world without one gets the empty map, every wheel on the reference class (054 T1: the
         tire's curve is the class's on any ground)."""
+        self.authored_ground = None
         self.surface = self._no_map()
         entry = self.surface_maps.get(usd)
         if entry is None:
             return
+        if entry.authored:
+            self._authored_ground(entry.surfaces)
         path, origin = entry.surfaces, entry.origin
         map_dir = entry.map_dir or os.path.dirname(path)
         roots = tuple(dict.fromkeys(r for r in (entry.state, map_dir) if r))
@@ -348,7 +359,8 @@ class IsaacWorld(WorldBase):
                     os.path.join(d, surfaces.RUTS_DIR)
                     for d in (entry.state, entry.map_dir or os.path.dirname(path))))
             self.surface = SurfaceLayer(self.stage, smap, origin,
-                                        self._apply_force, self._make_tiles)
+                                        self._apply_force, self._make_tiles,
+                                        self.authored_ground)
         else:  # no surfaces.yaml: named maps may still be there
             self.surface.origin = tuple(float(c) for c in origin)
             self.surface.make_tiles = self._make_tiles
@@ -364,6 +376,45 @@ class IsaacWorld(WorldBase):
                         zid, cls, why)
         if self.surface.tiles:
             self._settle_cut()
+
+    def _authored_ground(self, surfaces_file):
+        """An authored world (091 W13): its stage checked, refused with every problem listed;
+        the surface layers made for it read each collider's authored ground (`authored`). A
+        token names a class of the map's table (its `surfaces.yaml`'s, else the default)."""
+        table = (surfaces.load(surfaces_file).table if os.path.exists(surfaces_file)
+                 else self.surface.map.table)
+        problems = authored_stage.problems(self.stage, table.classes, ENVIRONMENT)
+        edited = authored_stage.edited_layers(self.stage)
+        problems += [f"{layer}: edited by the server (it writes into its own layers only)"
+                     for layer in edited]
+        if problems:
+            raise surfaces.SurfaceError("authored world:\n" + "\n".join(problems))
+        self.authored_ground = authored_stage.GroundReader(self.stage, table.classes)
+        self.surface.ground = self.authored_ground
+        log.info("authored world: the stage's ground wins where no zone covers it "
+                 "(token, then material, then the label's default)")
+
+    def _authored_physics(self):
+        """An authored world's own physics scenes off for the run (the server's scene steps;
+        scensim owns time), their gravity on the server's; what was replaced recorded."""
+        ours = next((p for p in self.stage.Traverse() if p.IsA(UsdPhysics.Scene)
+                     and not str(p.GetPath()).startswith(ENVIRONMENT + "/")), None)
+        for path, direction, magnitude, tsps in authored_stage.authored_scenes(
+                self.stage, ENVIRONMENT):
+            prim = self.stage.GetPrimAtPath(path)
+            prim.SetActive(False)  # an opinion in the server's layer, not the user's
+            if ours is not None:
+                scene = UsdPhysics.Scene(ours)
+                if direction is not None:
+                    scene.GetGravityDirectionAttr().Set(Gf.Vec3f(*direction))
+                if magnitude is not None:
+                    scene.GetGravityMagnitudeAttr().Set(magnitude)
+            used = round(1.0 / self.dt)
+            if tsps is not None and tsps != used:
+                self.stage_overrides[f"{path}.physxScene:timeStepsPerSecond"] = {
+                    "authored": tsps, "used": used}
+            log.info("authored world: physics scene %s off for the run (gravity %s, %s; "
+                     "%s steps/s authored, %d used)", path, direction, magnitude, tsps, used)
 
     def _load_road(self, path, origin):
         """The world's road detail (066 R3, `road_layer`), on the surface layer."""
@@ -443,7 +494,7 @@ class IsaacWorld(WorldBase):
         """The surface layer of a world without a surface map: every label the reference
         class, no zones (so a zone property is refused)."""
         return SurfaceLayer(self.stage, surfaces.parse({}, surfaces.NO_MAP),
-                            apply_force=self._apply_force)
+                            apply_force=self._apply_force, ground=self.authored_ground)
 
     def reset(self, handles):
         """A new owner, or a release: the entities go, the road goes back to the map's, the sky
