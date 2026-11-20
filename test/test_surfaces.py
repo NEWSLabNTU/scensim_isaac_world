@@ -944,3 +944,116 @@ class RoadConditionTest(unittest.TestCase):
         layer.reset(v.path)
         layer.update(v, 10.0, 1 / 60)
         self.assertAlmostEqual(v.written[0], 1.0)
+
+
+class NamedMapTest(unittest.TestCase):
+    """`scensim.surface_map` and `scensim.default.<Label>` (roadmap 056, 086 C4)."""
+
+    OWN = {"defaults": {"Road": "asphalt", "Terrain": "grass"},
+           "zones": [{"id": "puddle", "class": "asphalt", "polygon": SQUARE}]}
+    MUD = {"defaults": {"Road": "asphalt", "Terrain": "grass"},
+           "zones": [{"id": "pit", "class": "sand", "soil": "grid", "ground_z": 0.0,
+                      "polygon": [[0, -5], [40, -5], [40, 5], [0, 5]]}]}
+
+    def setUp(self):
+        import yaml
+
+        self.dir = tempfile.TemporaryDirectory()
+        root = Path(self.dir.name)
+        self.state, self.map_dir = root / "state", root / "map"
+        for d in (self.state / "surfaces", self.map_dir / "surfaces"):
+            d.mkdir(parents=True)
+        (self.map_dir / "surfaces.yaml").write_text(yaml.safe_dump(self.OWN))
+        (self.map_dir / "surfaces" / "mud.yaml").write_text(yaml.safe_dump(self.MUD))
+        (self.map_dir / "surfaces" / "wet.yaml").write_text(yaml.safe_dump(self.OWN))
+        (self.state / "surfaces" / "wet.yaml").write_text(yaml.safe_dump(self.MUD))
+        self.own = surfaces.load(self.map_dir / "surfaces.yaml")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def layer(self):
+        made = []
+        layer = surface_layer.SurfaceLayer(
+            FakeStage({}), self.own, make_tiles=lambda z, h, o: made.append(FakeTiles(z, h, o))
+            or made[-1])
+        roots = (str(self.state), str(self.map_dir))
+        layer.surface_dirs = tuple(str(Path(r) / "surfaces") for r in roots)
+        layer.ruts_roots = roots
+        return layer, made
+
+    def test_a_scenario_names_its_map_and_gets_it(self):
+        layer, made = self.layer()
+        layer.set_condition(1.0, "moist", {"scensim.surface_map": "mud"})
+        self.assertEqual(layer.named, "mud")
+        self.assertEqual([z.id for z in layer.map.zones], ["pit"])
+        self.assertEqual([t.zone.id for t in made], ["pit"])  # its soil zone's ground built
+        self.assertTrue(layer.cut_changed)
+        self.assertEqual(layer.condition.wetness, "moist")
+        self.assertEqual(layer.condition.surface_map, "mud")
+        self.assertEqual(Path(layer.base.ruts_dirs[0]),
+                         self.state / "surfaces" / "mud" / "ruts")
+
+    def test_the_states_map_wins_over_the_map_directorys(self):
+        self.assertEqual(sorted(surfaces.named_maps(
+            [self.state / "surfaces", self.map_dir / "surfaces"])), ["mud", "wet"])
+        layer, _ = self.layer()
+        layer.set_condition(1.0, "dry", {"scensim.surface_map": "wet"})
+        self.assertEqual([z.id for z in layer.map.zones], ["pit"])  # the state's copy
+
+    def test_the_rest_of_the_condition_is_checked_against_the_named_map(self):
+        layer, _ = self.layer()
+        with self.assertRaises(SurfaceError) as e:
+            layer.set_condition(1.0, "dry", {"scensim.surface_map": "mud",
+                                             "scensim.zone.puddle.wetness": "moist",
+                                             "scensim.zone.pit.class": "gravel"})
+        text = str(e.exception)
+        self.assertIn("no zone 'puddle'", text)
+        self.assertIn("zone 'pit' is soil", text)
+        self.assertIsNone(layer.named)  # nothing applied
+
+    def test_an_unknown_or_badly_named_map_is_refused_naming_the_maps(self):
+        layer, _ = self.layer()
+        for value, want in (("gone", "maps: mud, wet"), ("../x", "is not a map name")):
+            with self.assertRaises(SurfaceError) as e:
+                layer.set_condition(1.0, "dry", {"scensim.surface_map": value})
+            self.assertIn(want, str(e.exception))
+        bare = surface_layer.SurfaceLayer(FakeStage({}), self.own)
+        with self.assertRaises(SurfaceError) as e:
+            bare.set_condition(1.0, "dry", {"scensim.surface_map": "mud"})
+        self.assertIn("no map directory", str(e.exception))
+
+    def test_naming_another_map_after_driving_on_soil_is_refused(self):
+        layer, _ = self.layer()
+        layer.set_condition(1.0, "dry", {"scensim.surface_map": "mud"})
+        layer.driven = True
+        with self.assertRaises(SurfaceError) as e:
+            layer.set_condition(1.0, "dry", {"scensim.surface_map": "wet"})
+        self.assertIn("driven on soil since map mud", str(e.exception))
+        # the same map again, or a condition naming none, keeps it
+        layer.set_condition(0.7, "moist", {"scensim.surface_map": "mud"})
+        layer.set_condition(0.7, "moist", {})
+        self.assertEqual(layer.named, "mud")
+
+    def test_a_release_goes_back_to_the_worlds_own_map(self):
+        layer, made = self.layer()
+        layer.set_condition(1.0, "dry", {"scensim.surface_map": "mud"})
+        layer.back_to_own()
+        self.assertIsNone(layer.named)
+        self.assertEqual([z.id for z in layer.map.zones], ["puddle"])
+        self.assertTrue(made[0].removed)
+
+    def test_a_label_takes_a_class_for_one_scenario_friction_only(self):
+        layer, _ = self.layer()
+        layer.set_condition(1.0, "dry", {"scensim.default.Terrain": "mud_wet",
+                                         "scensim.default.SideWalk": "gravel"})
+        s = layer.map.at(100.0, 100.0, "Terrain")
+        self.assertEqual((s.cls, s.soil), ("mud_wet", None))
+        self.assertEqual(layer.map.at(100.0, 100.0, "SideWalk").cls, "gravel")
+        self.assertEqual(layer.base.defaults["Terrain"], "grass")  # the map as it was
+        self.assertEqual(layer.map.at(5.0, 5.0, "Terrain").cls, "asphalt")  # zones on top
+        with self.assertRaises(SurfaceError) as e:
+            layer.set_condition(1.0, "dry", {"scensim.default.Lawn": "grass",
+                                             "scensim.default.Road": "lava"})
+        self.assertIn("no ground label 'Lawn'", str(e.exception))
+        self.assertIn("unknown class 'lava'", str(e.exception))

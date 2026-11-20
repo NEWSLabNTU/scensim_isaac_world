@@ -103,8 +103,16 @@ class SurfaceLayer:
         `update(grid)`, `clear()` and `remove()` (`soil_tiles.SoilTiles`); None: no ruts in
         the collision."""
         self.stage = stage
-        self.base = surface_map  # the map as loaded; `map` is it under the road condition
+        self.base = surface_map  # the map in use (loaded or named); `map`: under the condition
         self.map = surface_map
+        self.own = surface_map  # the world's own map, which a release or new owner goes back to
+        self.named = None  # the named map in use (`scensim.surface_map`), None: its own
+        # where named maps are (`<state>/surfaces/`, `<map dir>/surfaces/`) and the roots their
+        # rut sets are under; set by the world for a registered map (056, 086 C4)
+        self.surface_dirs, self.ruts_roots = (), ()
+        self._named_cache = {}
+        self.make_tiles = make_tiles
+        self.cut_changed = False  # a named map's zones changed the ground: settle it
         self.origin = tuple(float(c) for c in map_origin)  # the world frame's origin in the map's
         self.condition = surfaces.RoadCondition()
         self.labels = {}  # collider path -> SimReady ground label, or None
@@ -141,8 +149,16 @@ class SurfaceLayer:
         set (or fresh ground) in the soil zones now, only while no wheel has driven on the soil
         since the last fresh start or set: ruts swapped under a moving car are not physical.
         SurfaceError lists every problem and changes nothing."""
-        condition, smap = surfaces.road_condition(self.base, friction_scale, wetness,
-                                                  properties)
+        condition, smap = surfaces.road_condition(
+            self.base, friction_scale, wetness, properties,
+            self._named if self.surface_dirs else None)
+        if condition.surface_map is not None and condition.surface_map != self.named:
+            if self.driven:
+                raise surfaces.SurfaceError(
+                    f"{surfaces.SURFACE_MAP_PROPERTY}: {condition.surface_map}: a wheel has "
+                    f"driven on soil since {'map ' + self.named if self.named else 'the load'};"
+                    f" a surface map is named before (the scenario's Init)")
+            self.use_map(self._named(condition.surface_map), condition.surface_map)
         if condition.ruts is not None and condition.ruts != self.ruts:
             if self.driven:
                 raise surfaces.SurfaceError(
@@ -155,6 +171,37 @@ class SurfaceLayer:
                  if name.startswith(surfaces.PROPERTY_PREFIX)}
         log.info("road condition: friction scale %g, %s%s", self.condition.friction_scale,
                  self.condition.wetness, "".join(f", {k}={v}" for k, v in zones.items()))
+
+    def _named(self, name):
+        """Named map `name`, parsed once per layer (a LoadWorld makes a new layer)."""
+        if name not in self._named_cache:
+            self._named_cache[name] = surfaces.load_named(self.surface_dirs, name,
+                                                          self.ruts_roots)
+        return self._named_cache[name]
+
+    def use_map(self, smap, name=None):
+        """Another map for this world (a named one, or `own` again with `name` None): the
+        zones' own ground of the last map off, this one's built, fresh soil. Only while no
+        wheel has driven on soil (the caller's check)."""
+        for t in self.tiles.values():
+            t.remove()
+        self.tiles = {}
+        self.base = self.map = smap
+        self.named = name
+        self.condition = surfaces.RoadCondition()
+        self.fresh_soil()
+        if self.make_tiles is not None:
+            for z in smap.zones:
+                if z.ground_z is not None:
+                    self.tiles[z.id] = self.make_tiles(z, SOIL_SPACING, self.origin)
+        self.cut_changed = True
+        log.info("surface map: %s (%s, %d zone(s))", name or "the map's own", smap.path,
+                 len(smap.zones))
+
+    def back_to_own(self):
+        """A release or a new owner: the world's own map again, if a named one is in use."""
+        if self.named is not None:
+            self.use_map(self.own)
 
     def label(self, path):
         """The ground label of the collider at `path`: the first Q-code found on it or up its
@@ -563,6 +610,11 @@ def register(world_files, state_dir=None):
         table = None
         if path.exists():
             table = surfaces.load(path).table  # refused here, not at the first LoadWorld
+        # the maps a scenario may name (056): each refused here too, not when named
+        for f in surfaces.named_maps([os.path.join(r, surfaces.SURFACES_DIR)
+                                      for r in dict.fromkeys(r for r in (state, map_dir)
+                                                             if r)]).values():
+            surfaces.load(f)
         road = Path(names.find_file(road_layer.FILE, map_dir, state))
         if road.exists():
             try:

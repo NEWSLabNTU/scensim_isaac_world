@@ -97,6 +97,12 @@ RUTS_FRESH = "fresh"
 RUTS_NAME = re.compile(r"^[a-z0-9_-]+$")
 # The map of a world with no surfaces.yaml: every label the reference class, no zones.
 NO_MAP = "(no surfaces.yaml)"
+# `scensim.surface_map` (roadmap 056, 086 C4): the scenario's surface map, by name, from the
+# map's `surfaces/<name>.yaml` (its state's first); `scensim.default.<Label>`: one ground
+# label's class for this scenario (friction only).
+SURFACE_MAP_PROPERTY = "scensim.surface_map"
+SURFACES_DIR = "surfaces"
+DEFAULT_PROPERTY = re.compile(r"^scensim\.default\.([^.]+)$")
 
 
 class SurfaceError(ValueError):
@@ -557,13 +563,35 @@ class RoadCondition:
     friction_scale: float = 1.0
     wetness: str = "dry"
     ruts: str = None  # `scensim.ruts`: a saved set's name, RUTS_FRESH, or None (as they are)
+    surface_map: str = None  # `scensim.surface_map`: the named map, or None (as loaded)
 
 
-def road_condition(surface_map, friction_scale=1.0, wetness="dry", properties=None):
+def road_condition(surface_map, friction_scale=1.0, wetness="dry", properties=None,
+                   named=None):
     """A scenario's road condition on `surface_map`: `(RoadCondition, the map with the zone
-    fields the properties set)`. The whole road state: zones it does not name are as the map
-    has them. SurfaceError lists every problem; then nothing applies."""
+    fields and label classes the properties set)`. The whole road state: zones it does not
+    name are as the map has them. `scensim.surface_map` names another map, which `named(name)`
+    returns (a SurfaceMap, or SurfaceError naming the maps there; None: this world has no
+    named maps); the rest of the condition is then checked against that map. SurfaceError
+    lists every problem; then nothing applies."""
     problems = []
+    properties = dict(properties or {})
+    map_name = properties.pop(SURFACE_MAP_PROPERTY, None)
+    if map_name is not None:
+        if not RUTS_NAME.match(str(map_name)):
+            problems.append(f"{SURFACE_MAP_PROPERTY}: {map_name!r} is not a map name "
+                            f"([a-z0-9_-]+, its {SURFACES_DIR}/<name>.yaml)")
+        elif named is None:
+            problems.append(f"{SURFACE_MAP_PROPERTY}: {map_name}: this world has no map "
+                            f"directory to hold {SURFACES_DIR}/{map_name}.yaml")
+        else:
+            try:
+                surface_map = named(str(map_name))
+            except SurfaceError as e:
+                problems.append(f"{SURFACE_MAP_PROPERTY}: {e}")
+        if problems:  # nothing else can be checked against a map that is not there
+            raise SurfaceError("\n".join(problems))
+    defaults = {}
     wetness = wetness or "dry"
     if wetness not in WETNESS:
         problems.append(f"wetness {wetness!r} is not one of {', '.join(WETNESS)}")
@@ -594,10 +622,23 @@ def road_condition(surface_map, friction_scale=1.0, wetness="dry", properties=No
             else:
                 ruts = value
             continue
+        d = DEFAULT_PROPERTY.match(name)
+        if d:
+            label = d.group(1)
+            if label not in (*LABELS, UNLABELLED):
+                problems.append(f"{name}: no ground label {label!r} (one of "
+                                f"{', '.join((*LABELS, UNLABELLED))})")
+            elif value not in surface_map.table.classes:
+                problems.append(f"{name}: unknown class {value!r} (the table has "
+                                f"{', '.join(sorted(surface_map.table.classes))})")
+            else:
+                defaults[label] = value  # a soil class: its friction (no soil under a label)
+            continue
         m = ZONE_PROPERTY.match(name)
         if not m:
             problems.append(f"{name}: unknown property (scensim.zone.<id>.<field>, field one of "
-                            f"{', '.join(ZONE_FIELDS)}; or {RUTS_PROPERTY})")
+                            f"{', '.join(ZONE_FIELDS)}; {RUTS_PROPERTY}; {SURFACE_MAP_PROPERTY};"
+                            f" scensim.default.<Label>)")
             continue
         zid, key = m.groups()
         if zid not in zones:
@@ -633,8 +674,33 @@ def road_condition(surface_map, friction_scale=1.0, wetness="dry", properties=No
         raise SurfaceError("\n".join(problems))
     changed = [dataclasses.replace(z, **overrides[z.id]) if z.id in overrides else z
                for z in surface_map.zones]
-    return (RoadCondition(friction_scale, wetness, ruts),
-            dataclasses.replace(surface_map, zones=changed))
+    return (RoadCondition(friction_scale, wetness, ruts, map_name),
+            dataclasses.replace(surface_map, zones=changed,
+                                defaults={**surface_map.defaults, **defaults}))
+
+
+def named_maps(dirs):
+    """The surface maps a scenario may name: `{name: file}` over `dirs` (`<state>/surfaces/`,
+    then `<map dir>/surfaces/`), the first dir's file winning."""
+    out = {}
+    for d in dirs:
+        for p in sorted(Path(d).glob("*.yaml")) if Path(d).is_dir() else []:
+            if RUTS_NAME.match(p.stem):
+                out.setdefault(p.stem, p)
+    return out
+
+
+def load_named(dirs, name, ruts_roots=()):
+    """Surface map `name` from `dirs` (`named_maps`); its rut sets are in `<root>/surfaces/
+    <name>/ruts/` per root of `ruts_roots` (the state's, then the map directory). SurfaceError
+    names the maps there when there is none, or lists the map's problems."""
+    have = named_maps(dirs)
+    if name not in have:
+        where = " or ".join(str(Path(d) / f"{name}.yaml") for d in dirs) or "nowhere"
+        raise SurfaceError(f"{name}: no {where} (maps: {', '.join(sorted(have)) or 'none'})")
+    smap = load(have[name])
+    return dataclasses.replace(smap, ruts_dirs=tuple(
+        str(Path(r) / SURFACES_DIR / name / RUTS_DIR) for r in ruts_roots))
 
 
 def ruts_dirs(surface_map):
@@ -875,19 +941,36 @@ def plot(surface_map, out, ways=()):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Check or plot a map's surfaces.yaml (047)")
+    ap = argparse.ArgumentParser(description="Check or plot a map's surfaces.yaml (047) and, "
+                                 "for a map directory, its named maps (surfaces/*.yaml, 056)")
     ap.add_argument("command", choices=("check", "plot"))
-    ap.add_argument("map", help="a map directory (its surfaces.yaml) or a surfaces.yaml")
+    ap.add_argument("map", help="a map directory (its surfaces.yaml and surfaces/*.yaml) or a "
+                                "surfaces.yaml")
     ap.add_argument("-o", "--output", default="",
                     help="plot: the image (default <map>/surfaces.png)")
     args = ap.parse_args(argv)
     path = find(args.map)
-    if not path.exists():
+    named = named_maps([Path(args.map) / SURFACES_DIR]) if Path(args.map).is_dir() else {}
+    if not path.exists() and not named:
         sys.exit(f"{path}: no surface map")
+    refused = []
+    for name, f in sorted(named.items()):
+        try:
+            m = load(f)
+            print(f"{f}: named map {name}: {len(m.zones)} zone(s), "
+                  f"{sum(bool(z.soil) for z in m.zones)} with soil")
+        except SurfaceError as e:
+            refused.append(f"{f}: refused\n{e}")
+    if not path.exists():
+        if refused:
+            sys.exit("\n".join(refused))
+        return
     try:
         smap = load(path)
     except SurfaceError as e:
-        sys.exit(f"{path}: refused\n{e}")
+        refused.append(f"{path}: refused\n{e}")
+    if refused:
+        sys.exit("\n".join(refused))
     osm = path.parent / "lanelet2_map.osm"
     ways = lanelet_ways(osm) if osm.exists() else []
     for w in warnings(smap, ways):

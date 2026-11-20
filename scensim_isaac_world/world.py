@@ -338,6 +338,8 @@ class IsaacWorld(WorldBase):
         if entry is None:
             return
         path, origin = entry.surfaces, entry.origin
+        map_dir = entry.map_dir or os.path.dirname(path)
+        roots = tuple(dict.fromkeys(r for r in (entry.state, map_dir) if r))
         if os.path.exists(path):
             smap = surfaces.load(path)
             if entry.state:
@@ -347,6 +349,12 @@ class IsaacWorld(WorldBase):
                     for d in (entry.state, entry.map_dir or os.path.dirname(path))))
             self.surface = SurfaceLayer(self.stage, smap, origin,
                                         self._apply_force, self._make_tiles)
+        else:  # no surfaces.yaml: named maps may still be there
+            self.surface.origin = tuple(float(c) for c in origin)
+            self.surface.make_tiles = self._make_tiles
+        # 056, 086 C4: the maps a scenario may name (`scensim.surface_map`)
+        self.surface.surface_dirs = tuple(os.path.join(r, surfaces.SURFACES_DIR) for r in roots)
+        self.surface.ruts_roots = roots
         self._load_road(entry.road, origin)
         if not os.path.exists(path):
             return
@@ -426,6 +434,10 @@ class IsaacWorld(WorldBase):
         if self.surface is None:
             self.surface = self._no_map()
         self.surface.set_condition(friction_scale, wetness, properties)
+        if self.surface.cut_changed:  # a named map's soil zones cut the ground (056)
+            self.surface.cut_changed = False
+            if self.surface.tiles:
+                self._settle_cut()
 
     def _no_map(self):
         """The surface layer of a world without a surface map: every label the reference
@@ -440,8 +452,13 @@ class IsaacWorld(WorldBase):
         self._reset_sky()
         if self.surface is not None:
             self._save_ruts()
+            self.surface.back_to_own()  # a named map (056) goes with its scenario
             self.surface.set_condition()
             self.surface.fresh_soil()
+            if self.surface.cut_changed:
+                self.surface.cut_changed = False
+                if self.surface.tiles:
+                    self._settle_cut()
 
     # --- The scenario's weather and time of day (047; `sky`) ------------------------------
 
