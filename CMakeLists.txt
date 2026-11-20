@@ -20,7 +20,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/built_from DESTINATION share/${PROJECT
 install(PROGRAMS scripts/isaac_env.sh scripts/renamed_env.sh
         DESTINATION share/${PROJECT_NAME}/scripts)
 
-install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 # The examples a user copies into a map or project (the rough road's road_detail.yaml files;
 # roadmap 076 A9): share/scensim_isaac_world/examples/.
 install(DIRECTORY scensim_isaac_world/examples/ DESTINATION share/${PROJECT_NAME}/examples)

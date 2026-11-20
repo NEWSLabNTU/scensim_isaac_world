@@ -133,11 +133,12 @@ def keys():
     return out
 
 
-def parse(data, where=FILE, base=None, notes=None):
+def parse(data, where=FILE, base=None, notes=None, classes=None):
     """The corridors of a road_detail.yaml's contents; RoadDetailError lists every problem.
     `base`: the directory a corridor's `stations` file is in (the YAML's). A section the road
     layer cannot shape the road with yet (`road_record.detail_section`) is a problem, or, with
-    a `notes` list, a note there and the first station's left side for the detail."""
+    a `notes` list, a note there and the first station's left side for the detail. `classes`:
+    the surface class names a section's surfaces must be (086 C2; None: not checked)."""
     problems = []
     kinds = _kinds()
     out = []
@@ -213,7 +214,7 @@ def parse(data, where=FILE, base=None, notes=None):
                 and not args["roughness"].gd0:
             problems.append(f"{at}.roughness: class {args['roughness'].cls} is not ISO 8608's "
                             f"A-H")
-        stations, section = _section(c, line, base, at, problems, notes)
+        stations, section = _section(c, line, base, at, problems, notes, classes)
         if section is not None:
             args["section"] = section
         if "rocks" in args and not ground:
@@ -227,7 +228,7 @@ def parse(data, where=FILE, base=None, notes=None):
     return out
 
 
-def _section(c, line, base, at, problems, notes):
+def _section(c, line, base, at, problems, notes, classes=None):
     """A corridor's stations and the road layer's section from them: `section:` constants or
     a `stations:` file (086 C1)."""
     if "stations" in c and "section" in c:
@@ -245,6 +246,13 @@ def _section(c, line, base, at, problems, notes):
     else:
         st, found = rr.from_constants(c.get("section"), f"{at}.section")
     problems.extend(found)
+    if st is not None and classes is not None:
+        for k in ("shoulder_surface", "runoff_surface"):
+            unknown = sorted(set(np.ravel(st.text[k])) - set(classes) - {""})
+            if unknown:
+                problems.append(f"{at}: {k} {unknown[0]!r} is not a surface class (the table "
+                                f"has {', '.join(sorted(classes))})")
+                found = True
     if st is None or found:
         return st, None
     section, why = rr.detail_section(st, rd.Section)
@@ -260,12 +268,22 @@ def _section(c, line, base, at, problems, notes):
     return st, section
 
 
-def load(path, notes=None):
+def load(path, notes=None, classes=None):
     import yaml
 
     with open(path) as f:
         return parse(yaml.safe_load(f) or {}, str(path), os.path.dirname(os.path.abspath(path)),
-                     notes)
+                     notes, classes)
+
+
+def class_names(surfaces_path=None):
+    """The surface class names a road's sections may use: the class table of the map's
+    `surfaces.yaml` at `surfaces_path` when it exists (its `classes:`), else the shared one."""
+    from . import surfaces
+
+    if surfaces_path and os.path.exists(surfaces_path):
+        return set(surfaces.load(surfaces_path).table.classes)
+    return set(surfaces.load_classes().classes)
 
 
 def find(map_or_file, state=None):
@@ -381,7 +399,9 @@ def main(argv=None):
         return 1
     notes = []
     try:
-        corridors = load(path, notes)
+        from . import surfaces
+        corridors = load(path, notes, class_names(
+            os.path.join(os.path.dirname(os.path.abspath(path)), surfaces.FILE)))
     except RoadDetailError as e:
         print(f"{path}: refused\n{e}", file=sys.stderr)
         return 1

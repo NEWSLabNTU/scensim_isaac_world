@@ -157,6 +157,38 @@ class Stations(unittest.TestCase):
         self.assertEqual(len(c.stations), 121)
 
 
+class SurfaceClasses(unittest.TestCase):
+    """A section's surfaces are the shared class table's (roadmap 086 C2)."""
+
+    def test_the_default_table_is_the_world_servers_shared_one(self):
+        from scensim_isaac_world import surfaces
+        from scensim_world_server.classes import SURFACE_CLASSES
+
+        self.assertEqual(surfaces.DEFAULT_CLASSES, SURFACE_CLASSES)
+        self.assertIn("gravel", rl.class_names())
+
+    def test_a_surface_not_in_the_table_is_refused(self):
+        names = rl.class_names()
+        ok = {"centreline": LINE, "section": {"shoulder_surface": "gravel",
+                                              "runoff_surface": {"left": "grass"}}}
+        c, = rl.parse({"corridors": [ok]}, classes=names)
+        self.assertEqual(c.stations.text["runoff_surface"][1, 0], "")
+        with self.assertRaises(rl.RoadDetailError) as e:
+            rl.parse({"corridors": [{"centreline": LINE,
+                                     "section": {"runoff_surface": {"right": "lava"}}}]},
+                     classes=names)
+        self.assertIn("runoff_surface 'lava' is not a surface class", str(e.exception))
+
+    def test_a_maps_own_table_names_its_classes(self):
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "mine.yaml"), "w") as f:
+            f.write("reference: tarmac\nclasses:\n  tarmac: {mu: 1.0}\n")
+        with open(os.path.join(d, "surfaces.yaml"), "w") as f:
+            f.write("classes: mine.yaml\ndefaults: {Road: tarmac, RoadLine: tarmac, "
+                    "SideWalk: tarmac, Terrain: tarmac, Ground: tarmac}\nzones: []\n")
+        self.assertEqual(rl.class_names(os.path.join(d, "surfaces.yaml")), {"tarmac"})
+
+
 class Schema(unittest.TestCase):
     def test_absent_is_one_and_newer_is_refused(self):
         self.assertTrue(rl.parse({"corridors": [{"centreline": LINE}]}))

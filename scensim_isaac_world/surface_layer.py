@@ -560,12 +560,13 @@ def register(world_files, state_dir=None):
             continue
         state = names.state_for(state_dir, map_dir)
         path = Path(names.find_file(surfaces.FILE, map_dir, state))
+        table = None
         if path.exists():
-            surfaces.load(path)  # refused here, not at the first LoadWorld
+            table = surfaces.load(path).table  # refused here, not at the first LoadWorld
         road = Path(names.find_file(road_layer.FILE, map_dir, state))
         if road.exists():
             try:
-                road_layer.load(road)
+                road_layer.load(road, classes=set((table or surfaces.load_classes()).classes))
             except road_layer.RoadDetailError as e:
                 raise surfaces.SurfaceError(str(e)) from e
         out[os.path.realpath(usd)] = MapFiles(

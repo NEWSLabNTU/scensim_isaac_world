@@ -206,7 +206,7 @@ if LIVE:
     spec_path = os.path.join(REPO, "src/sim_vehicle_spec/vehicles/drift_mustang.yaml")
     live.stdin.write(json.dumps({"init": {
         "map_dir": MAP, "spec": spec_path,
-        "classes": os.path.join(REPO, "src/scensim_isaac_world/config/surface_classes.yaml"),
+        "classes": os.path.join(REPO, "src/scensim_world_protocol/scensim_world_server/scensim_world_server/surface_classes.yaml"),
         "l0": os.environ.get("LIVE_L0"), "grip": float(os.environ.get("LIVE_GRIP", "0.92")),
         "budget": float(os.environ.get("LIVE_BUDGET", "1.0")),
         "multistart": json.loads(os.environ.get("LIVE_MULTISTART") or "null")}}) + "\n")

@@ -5,7 +5,7 @@ anywhere and the maths is unit-tested.
 `<map>/surfaces.yaml` (047 D1) says what every piece of ground is:
 
     classes: surface_classes.yaml      # optional: a class table beside the map; default the
-                                       # one shipped in src/scensim_isaac_world/config/
+                                       # one every world server shares (scensim_world_server's)
     allow_unvalidated: [mud_wet]       # optional: classes whose soil parameters are a stand-in
                                        # (the table's `unvalidated:`) that soil zones here may
                                        # use; any other such zone is refused (047 D6)
@@ -63,11 +63,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+# the surface classes every world server shares (scensim roadmap 086 C2)
+from scensim_world_server.classes import SURFACE_CLASSES
 
 from . import soil as soil_model
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_CLASSES = HERE.parent / "config" / "surface_classes.yaml"
+DEFAULT_CLASSES = SURFACE_CLASSES
 FILE = "surfaces.yaml"
 WETNESS = ("dry", "moist", "wetWithPuddles", "lowFlooded", "highFlooded")
 LABELS = ("Road", "RoadLine", "SideWalk", "Terrain", "Ground")

@@ -136,7 +136,6 @@ answers `Hello`.
 | `launch/`, `scripts/scensim_isaac_world_server.in` | The launch file and the launch node wrapper (drops the system ROS environment, sources Isaac's) |
 | `scripts/` | Isaac install and environment, Autoware's messages for Isaac (`build_msgs.sh`), the `ros2 run` entries' wrapper (`scensim_isaac_world_entry.in`), CARLA vehicle, walker and prop export to USD (`isaac_vehicles.sh`; `isaac_town.sh` calls `make_world`), step responses against CARLA (`step_response/`) |
 | `scensim_isaac_world/examples/` | Files to copy into a map or project: the rough road's |
-| `config/surface_classes.yaml` | Road and off-road surface classes |
 | `test/` | Unit tests of the pure modules |
 | `spikes/` | Experiments behind the design decisions |
 | `deps/` | `scensim_world_protocol` and `autoware_isaac_bridge`, submodules (with a `COLCON_IGNORE`, so a colcon run over a superproject never sees them twice) |

@@ -362,7 +362,10 @@ class IsaacWorld(WorldBase):
         if not os.path.exists(path):
             return
         layer = self.surface
-        layer.road = road_layer.RoadLayer(road_layer.load(path), origin, self._apply_force)
+        table = layer.map.table if getattr(layer, "map", None) is not None else None
+        classes = set((table or surfaces.load_classes()).classes)
+        layer.road = road_layer.RoadLayer(road_layer.load(path, classes=classes), origin,
+                                          self._apply_force)
         layer.road_meshes = road_layer.MeshStream(self.stage, layer.road)
         if layer.road.rocks is not None:  # 066 R4: the corridors' rocks, streamed
             from . import rock_layer
