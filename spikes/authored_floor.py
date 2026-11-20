@@ -71,7 +71,7 @@ def write_field(d, mu):
     stage.GetRootLayer().Save()
     wy = os.path.join(d, "isaac", "world.yaml")
     with open(wy, "w") as f:
-        f.write("usd: ../field.usda\nauthored: true\nmap_origin: [0.0, 0.0, 0.0]\n"
+        f.write("usd: field.usda\nauthored: true\nmap_origin: [0.0, 0.0, 0.0]\n"
                 f"ground_paths:\n  - \"{FLOOR}\"\n")
     return path, wy
 
