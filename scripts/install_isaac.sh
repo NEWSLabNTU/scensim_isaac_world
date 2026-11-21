@@ -21,5 +21,5 @@ uv pip install torchvision==0.26.0+cu128 --index-url https://download.pytorch.or
 uv pip install pyzmq  # the scensim world protocol (037) and the lockstep spike
 uv pip install pytest  # aib's test-isaac lane imports it (two of its suites; no Isaac venv had it)
 python -c "import importlib.metadata as m; print('isaacsim', m.version('isaacsim'))"
-PYTHONNOUSERSITE=1 python -c "import torch, torchvision; print('torch', torch.__version__, 'torchvision', torchvision.__version__)"
+PYTHONNOUSERSITE=1 python -c "import importlib.metadata as m, torch, torchvision; print('torch', torch.__version__, 'torchvision', torchvision.__version__, 'warp-lang', m.version('warp-lang'))"
 echo INSTALL-DONE
