@@ -131,6 +131,19 @@ class Loop(unittest.TestCase):
         self.assertIsNotNone(graph.getRoute(lls[0], lls[-1]))
         del GPSPoint
 
+    def test_a_point_cloud_for_ssv2s_loader(self):
+        self.make(circle(r=6.0), width=2.0)
+        text = (self.d / "pointcloud_map.pcd").read_text().splitlines()
+        self.assertIn("not a localisation map", text[0])
+        n = int(next(x for x in text if x.startswith("POINTS")).split()[1])
+        rows = text[text.index("DATA ascii") + 1:]
+        self.assertEqual(len(rows), n)
+        for row in rows:
+            x, y, z = map(float, row.split())
+            self.assertAlmostEqual(z, 0.0)
+            # within the half width of the circle (its 40-gon chords sit up to 2 cm inside it)
+            self.assertLessEqual(abs(math.dist((x, y), (2.0, -3.0)) - 6.0), 1.0 + 0.05)
+
     def test_closing_point_and_duplicates_are_dropped(self):
         pts = circle(n=20)
         g1 = loop.build(pts + [pts[0]])

@@ -28,6 +28,11 @@ import hashlib
 import os
 import re
 
+# The keys a map's `isaac/world.yaml` may hold. The bridge parses the same file and refuses a
+# key it does not know (scenario_world_bridge's `WorldFile`), so the two lists must agree:
+# scensim's scripts/test_world_keys.py fails when they differ. `usd` is `world`'s older name.
+WORLD_KEYS = ("world", "usd", "ground_paths", "map_origin", "authored", "evidence")
+
 CARLA_USD_ENV = "SCENSIM_CARLA_USD"
 CARLA_USD_OLD_ENV = "CARLA_USD"  # the host setting before roadmap 076
 # A world file's token for the set before roadmap 080, in published map datasets: a
