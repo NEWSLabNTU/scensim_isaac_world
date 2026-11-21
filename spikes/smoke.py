@@ -5,7 +5,10 @@ import time
 t0 = time.time()
 from isaacsim import SimulationApp  # noqa: E402
 
-app = SimulationApp({"headless": not os.environ.get("DISPLAY")})  # windowed on a display (VNC), else headless
+# windowed on a display (VNC), else headless; Kit settings of the host (ISAAC_KIT_ARGS), as the
+# world server takes them: e.g. --portable-root for an install's own caches (scensim roadmap 095)
+app = SimulationApp({"headless": not os.environ.get("DISPLAY"),
+                     "extra_args": os.environ.get("ISAAC_KIT_ARGS", "").split()})
 t_app = time.time() - t0
 
 from isaacsim.core.api import World  # noqa: E402

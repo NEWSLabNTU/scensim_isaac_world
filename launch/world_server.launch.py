@@ -56,7 +56,7 @@ def isaac_root_problems(environ):
     """ISAAC_ROOT unset, or not an Isaac Sim install: isaac_env.sh's refusals, as messages."""
     root = environ.get("ISAAC_ROOT", "")
     if not root:
-        return ["ISAAC_ROOT is not set: it names Isaac Sim 6.1's pip install "
+        return ["ISAAC_ROOT is not set: it names Isaac Sim 6.2's pip install "
                 "(scripts/install_isaac.sh); set isaac.root in ~/.config/scensim/host.yaml, or "
                 "export ISAAC_ROOT"]
     for need in ISAAC_INSTALL:

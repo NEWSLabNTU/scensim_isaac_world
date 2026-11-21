@@ -5,5 +5,5 @@ set -u
 rmw=$1; log=$2; shift 2
 export RMW_IMPLEMENTATION=rmw_${rmw}_cpp
 source $(dirname $0)/../scripts/isaac_env.sh
-cd ${ISAAC_ROOT:?ISAAC_ROOT is not set: the Isaac Sim 6.1 pip install}
+cd ${ISAAC_ROOT:?ISAAC_ROOT is not set: the Isaac Sim 6.2 pip install}
 exec python "$@" > "$log" 2>&1

@@ -1,6 +1,6 @@
 # scensim_isaac_world: Isaac Sim behind the world protocol. Its dependencies, scensim_world_protocol
 # (the Python shell) and autoware_isaac_bridge (the ego), are submodules under deps/
-# (git submodule update --init --recursive). ISAAC_ROOT: the Isaac Sim 6.1 pip install.
+# (git submodule update --init --recursive). ISAAC_ROOT: the Isaac Sim 6.2 pip install.
 
 isaac_root := env_var_or_default('ISAAC_ROOT', '')  # no default (077 G75): set it in the environment
 

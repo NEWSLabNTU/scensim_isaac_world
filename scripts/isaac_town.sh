@@ -48,7 +48,7 @@ if [ "$force" = true ] || [ ! -f "$SCENSIM_CARLA_USD/$town/$town.usd" ]; then
 fi
 [ "$physics" = true ] && args+=(--physics)
 
-export ISAAC_ROOT=${ISAAC_ROOT:?ISAAC_ROOT is not set: the Isaac Sim 6.1 pip install (scripts/install_isaac.sh)}
+export ISAAC_ROOT=${ISAAC_ROOT:?ISAAC_ROOT is not set: the Isaac Sim 6.2 pip install (scripts/install_isaac.sh)}
 set +u
 source "$here/scripts/isaac_env.sh"
 set -u

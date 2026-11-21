@@ -1,4 +1,4 @@
-# Isaac Sim 6.1 environment (roadmap 036), for scensim's Isaac side: aib's (autoware_isaac_bridge,
+# Isaac Sim 6.2 environment (roadmap 036; 6.2 since scensim roadmap 095), for scensim's Isaac side: aib's (autoware_isaac_bridge,
 # the submodule at deps/autoware_isaac_bridge; roadmap 045) -- the pip install's venv, Isaac's
 # bundled ROS 2 Humble libraries, Autoware's messages rebuilt for it ($ISAAC_ROOT/msgs, shared
 # by both repositories) -- plus aib's Python package on PYTHONPATH, which the world server
@@ -10,7 +10,7 @@
 # the host settings renamed by roadmap 080 are refused, naming the new
 source "$(dirname "${BASH_SOURCE[0]}")/renamed_env.sh" || return 2 2>/dev/null || exit 2
 if [ -z "${ISAAC_ROOT:-}" ]; then
-    echo "isaac_env.sh: ISAAC_ROOT is not set: it names Isaac Sim 6.1's pip install" \
+    echo "isaac_env.sh: ISAAC_ROOT is not set: it names Isaac Sim 6.2's pip install" \
          "(scripts/install_isaac.sh); set isaac.root in ~/.config/scensim/host.yaml, or export ISAAC_ROOT" >&2
     return 2 2>/dev/null || exit 2
 fi

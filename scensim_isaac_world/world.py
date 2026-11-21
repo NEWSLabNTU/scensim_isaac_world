@@ -103,7 +103,7 @@ COLOURS = {
 
 
 def _isaac_version():
-    """`6.1.0 (Kit 110.3.0)`: the pip package's version and Kit's."""
+    """`6.2.0 (Kit 110.4.0)`: the pip package's version and Kit's."""
     from importlib.metadata import PackageNotFoundError, version
 
     kit = omni.kit.app.get_app().get_build_version().split("+")[0]
