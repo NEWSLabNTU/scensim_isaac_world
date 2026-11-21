@@ -406,7 +406,8 @@ class IsaacWorld(WorldBase):
         try:
             rec = stage_record.record(usd, self.stage_overrides,
                                       {"surfaces.yaml": entry.surfaces,
-                                       "road_detail.yaml": entry.road}, cache)
+                                       "road_detail.yaml": entry.road}, cache,
+                                      map_dir=entry.map_dir)
         except stage_record.Unresolved as e:
             raise surfaces.SurfaceError(f"authored world: {e}") from None
         self.stage_provenance = rec
