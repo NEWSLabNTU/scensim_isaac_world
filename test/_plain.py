@@ -3,8 +3,9 @@
 The suite runs under `unittest discover` (scensim's `just test`, and in Isaac's own venv, which
 has no pytest), where a module of bare `test_` functions holds no tests at all, and one that
 imports pytest does not import. `approx` compares as pytest.approx does by default (relative
-1e-6, absolute 1e-12; `abs=` and `rel=` as there), scalars or arrays; `load_tests` makes each
-`test_` function of a module a unittest case:
+1e-6, absolute 1e-12; `abs=` and `rel=` as there), scalars or arrays (given only `abs=`, no relative
+tolerance, as pytest's); `cases(__name__)` is a load_tests hook that makes each `test_`
+function of a module a unittest case:
 
     from _plain import approx, cases
     load_tests = cases(__name__)
@@ -19,6 +20,7 @@ import numpy as np
 class approx:  # noqa: N801 - read as pytest's
     __array_ufunc__ = None   # numpy defers `array == approx(...)` to __eq__, as with pytest's
     __array_priority__ = 100
+
     def __init__(self, expected, rel=None, abs=None):  # noqa: A002 - pytest's argument names
         self.expected = expected
         self.rel = 1e-6 if rel is None and abs is None else (rel or 0.0)
