@@ -53,6 +53,17 @@ def course(frame, start_xy):
                      "lane_width": 6.0, "shoulder": 1.5}}
 
 
+try:
+    import pyproj  # noqa: F401 - centreline.Frame projects with it
+    NO_PYPROJ = None
+except ImportError:
+    # The course's meshes and lanelets are the system Python's work (pyproj, lanelet2), not the
+    # world server's in Isaac's venv, which lacks pyproj (scensim_isaac_world.course; issue 090)
+    NO_PYPROJ = ("no pyproj in this Python: the course's centreline and lanelets are built by the "
+                 "system Python (pyproj, lanelet2), not Isaac's")
+
+
+@unittest.skipIf(NO_PYPROJ, NO_PYPROJ or "")
 class ClosedCentreline(unittest.TestCase):
     def setUp(self):
         self.frame = cl.Frame(ORIGIN)
@@ -118,6 +129,7 @@ class ClosedCentreline(unittest.TestCase):
         self.assertLess(c["s"][-1], 0.7 * (2 * STRAIGHT + 2 * math.pi * R))
 
 
+@unittest.skipIf(NO_PYPROJ, NO_PYPROJ or "")
 class ClosedRibbonsAndLanelets(unittest.TestCase):
     def setUp(self):
         self.frame = cl.Frame(ORIGIN)

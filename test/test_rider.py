@@ -3,11 +3,11 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scensim_isaac_world import rider  # noqa: E402
+from _plain import approx, cases  # noqa: E402 - plain tests, no pytest (issue 090)
 
 # A stick rider on CARLA's Gen2 joint names, in a y-up skeleton frame (x: the rider's left),
 # T-pose, joints' rotations identity: (name, parent, translation from the parent).
@@ -88,7 +88,7 @@ def test_forward_kinematics_follows_usd_order():
     p = rider.Pose(paths, rest, xf)
     # Hips 1.0 up the skeleton's y: in the asset frame z, after the tilt about y.
     hips = p.pos("crl_hips__C")
-    assert hips == pytest.approx(np.array((-1.2, 0, 0.1)) + rider.rot_y(20.0) @ (0, 0, 1.0))
+    assert hips == approx(np.array((-1.2, 0, 0.1)) + rider.rot_y(20.0) @ (0, 0, 1.0))
     assert p.pos("crl_hand__L")[1] > 0.6  # the left arm is out on +y
 
 
@@ -97,9 +97,9 @@ def test_two_bone_reaches_a_target_within_reach():
     p = rider.Pose(paths, rest, xf)
     target = p.pos("crl_arm__L") + (0.3, 0.05, -0.2)
     p.two_bone("crl_arm__L", "crl_foreArm__L", "crl_hand__L", target, (0, 1, -1))
-    assert p.pos("crl_hand__L") == pytest.approx(target, abs=1e-6)
+    assert p.pos("crl_hand__L") == approx(target, abs=1e-6)
     # bones keep their lengths, the elbow bends toward the pole
-    assert np.linalg.norm(p.pos("crl_foreArm__L") - p.pos("crl_arm__L")) == pytest.approx(0.27)
+    assert np.linalg.norm(p.pos("crl_foreArm__L") - p.pos("crl_arm__L")) == approx(0.27)
     mid = (p.pos("crl_arm__L") + target) / 2
     assert np.dot(p.pos("crl_foreArm__L") - mid, (0, 1, -1)) > 0
 
@@ -112,13 +112,13 @@ def test_the_rider_sits_on_the_saddle_with_hands_on_the_bars_and_feet_on_the_ped
     assert np.allclose(scales, 1.0)
     p = posed(rotations, translations)
     seat = np.array(SOCKETS["seat"]) + rider.SEAT_OFFSET + (slide, 0, 0)
-    assert p.pos("crl_hips__C") == pytest.approx(seat, abs=1e-5)
+    assert p.pos("crl_hips__C") == approx(seat, abs=1e-5)
     assert 0 <= lean <= rider.MAX_LEAN
     for s in "LR":
         wrist = p.pos(f"crl_hand__{s}")
-        assert np.linalg.norm(wrist - SOCKETS["hand_" + s]) == pytest.approx(rider.WRIST_BACK, abs=1e-3)
+        assert np.linalg.norm(wrist - SOCKETS["hand_" + s]) == approx(rider.WRIST_BACK, abs=1e-3)
         ankle = np.array(SOCKETS["pedal_" + s]) + rider.ANKLE_OFFSET
-        assert p.pos(f"crl_foot__{s}") == pytest.approx(ankle, abs=1e-3)
+        assert p.pos(f"crl_foot__{s}") == approx(ankle, abs=1e-3)
         # knees forward of the hips, elbows below the shoulders
         assert p.pos(f"crl_leg__{s}")[0] > p.pos("crl_hips__C")[0]
         assert p.pos(f"crl_foreArm__{s}")[2] < p.pos(f"crl_arm__{s}")[2]
@@ -137,7 +137,7 @@ def test_the_feet_stay_level_and_the_grip_is_kept():
     p = posed(rotations, translations)
     for s in "LR":
         # the foot's frame as standing: its local y (the shin's direction) up the world z
-        assert p.wrot[p.index[f"crl_foot__{s}"]] @ (0, 1, 0) == pytest.approx((0, 0, 1), abs=1e-6)
+        assert p.wrot[p.index[f"crl_foot__{s}"]] @ (0, 1, 0) == approx((0, 0, 1), abs=1e-6)
 
 
 def test_bars_far_ahead_lean_further():
@@ -145,3 +145,6 @@ def test_bars_far_ahead_lean_further():
     near = rider.seat(paths, rest, xf, SOCKETS)[3]
     far = dict(SOCKETS, hand_L=(0.45, 0.25, 0.95), hand_R=(0.45, -0.25, 0.95))
     assert rider.seat(paths, rest, xf, far)[3] > near
+
+
+load_tests = cases(__name__)  # unittest runs the test_ functions too

@@ -106,7 +106,8 @@ def _check_values(name, a, check, at, problems):
     bad = check(np.asarray(a, dtype=float))
     if np.any(bad):
         i = int(np.flatnonzero(np.ravel(bad))[0])
-        problems.append(f"{at}: {name} {np.ravel(a)[i]!r} out of range ({_meaning(name)})"
+        # a Python float: numpy 2's repr of its scalar reads "np.float64(-1.0)" (issue 090)
+        problems.append(f"{at}: {name} {float(np.ravel(a)[i])!r} out of range ({_meaning(name)})"
                         + (f", at station {i % max(1, np.shape(a)[-1])}" if np.size(a) > 1
                            else ""))
 
@@ -120,7 +121,7 @@ def _meaning(name):
 
 def _text_check(name, a, at, problems):
     if name == "hazard":
-        bad = sorted(set(np.ravel(a)) - set(HAZARDS) - {""})
+        bad = sorted({str(v) for v in np.ravel(a)} - set(HAZARDS) - {""})  # Python strs (090)
         if bad:
             problems.append(f"{at}: hazard {bad[0]!r} is not one of {', '.join(HAZARDS)}")
 

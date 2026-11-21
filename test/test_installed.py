@@ -11,9 +11,14 @@ import shlex
 import shutil
 import subprocess
 import textwrap
+import unittest
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError:  # Isaac's venv (issue 090): a pytest module, run by scensim's pytest lanes
+    raise unittest.SkipTest("test_installed needs pytest (its fixtures), which this Python lacks; "
+                            "the system Python's pytest runs it") from None
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent

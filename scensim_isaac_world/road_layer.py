@@ -268,7 +268,8 @@ def _section(c, line, base, at, problems, notes, classes=None):
     problems.extend(found)
     if st is not None and classes is not None:
         for k in ("shoulder_surface", "runoff_surface"):
-            unknown = sorted(set(np.ravel(st.text[k])) - set(classes) - {""})
+            # Python strings: numpy 2's repr of its str reads "np.str_('lava')" (issue 090)
+            unknown = sorted({str(v) for v in np.ravel(st.text[k])} - set(classes) - {""})
             if unknown:
                 problems.append(f"{at}: {k} {unknown[0]!r} is not a surface class (the table "
                                 f"has {', '.join(sorted(classes))})")
