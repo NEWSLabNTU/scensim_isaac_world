@@ -9,6 +9,9 @@ function of a module a unittest case:
 
     from _plain import approx, cases
     load_tests = cases(__name__)
+
+Each function is called with no arguments: no pytest fixtures and no parametrize in such a
+module (a fixture argument fails as a TypeError naming the function).
 """
 import inspect
 import sys
