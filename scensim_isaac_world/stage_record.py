@@ -9,7 +9,8 @@ and writes it beside the map's state (`write`), where the run reads it.
 
 `check` gives what the map check refuses in an authored world: units other than metres, an up
 axis other than Z, a PhysX vehicle prim, an unresolved dependency, and what `authored.problems`
-finds (an unknown class token, a friction out of range).
+finds (an unknown class token, a friction out of range); `check_map` adds a map directory with no
+`lanelet2_map.osm` (W17's `loop` makes one).
 """
 import hashlib
 import json
@@ -247,12 +248,17 @@ def check_map(world_file, state_dir=None):
         out["problems"].append(f"{world_file}: {e}")
         return out
     out["stage"] = usd
+    if not os.path.isfile(os.path.join(map_dir, "lanelet2_map.osm")):
+        # SSv2 loads a Lanelet2 map for every scenario (design 3.1, roadmap 091 W17)
+        out["problems"].append(f"{map_dir}: no lanelet2_map.osm (SSv2 needs one); make the loop "
+                               "with `python -m scensim_isaac_world.loop <map dir> --centreline "
+                               "<x,y csv>` or `--prim <BasisCurves prim>`")
     if not usd or not os.path.isfile(usd):
         out["problems"].append(f"{world_file}: usd: {usd or 'none'}: no such file")
         return out
     surfaces_file = names.find_file("surfaces.yaml", map_dir,
                                     names.state_for(state_dir, map_dir))
-    out["problems"] = check(usd, classes_of(surfaces_file))
+    out["problems"] += check(usd, classes_of(surfaces_file))
     return out
 
 

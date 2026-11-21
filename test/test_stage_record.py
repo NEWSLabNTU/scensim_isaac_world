@@ -183,6 +183,15 @@ class Check(unittest.TestCase):
         self.assertTrue(out["stage"].endswith(os.path.join("lab", "field.usda")))
         self.assertTrue(any("metersPerUnit" in x for x in out["problems"]), out)
 
+    def test_map_without_a_lanelet_map(self):
+        out = stage_record.check_map(self._map(True))
+        self.assertTrue(any("no lanelet2_map.osm" in x and "scensim_isaac_world.loop" in x
+                            for x in out["problems"]), out)
+        with open(os.path.join(self.d, "assets", "maps", "lab", "lanelet2_map.osm"), "w") as f:
+            f.write("<osm/>\n")
+        self.assertEqual(stage_record.check_map(os.path.join(
+            self.d, "assets", "maps", "lab", "isaac", "world.yaml"))["problems"], [])
+
     def test_map_not_authored_is_not_checked(self):
         out = stage_record.check_map(self._map(False, mpu=0.01))
         self.assertEqual((out["authored"], out["problems"]), (False, []))
