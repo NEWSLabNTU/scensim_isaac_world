@@ -137,7 +137,9 @@ class Reader(unittest.TestCase):
         UsdPhysics.MaterialAPI.Apply(mat.GetPrim()).CreateDynamicFrictionAttr(mu)
         return mat
 
-    def bind(self, prim_path, mat, purpose=authored.PHYSICS_PURPOSE):
+    def bind(self, prim_path, mat, purpose=None):
+        # not a default of authored.PHYSICS_PURPOSE: the class body runs without pxr too
+        purpose = authored.PHYSICS_PURPOSE if purpose is None else purpose
         prim = self.stage.GetPrimAtPath(prim_path)
         UsdShade.MaterialBindingAPI.Apply(prim).Bind(
             mat, UsdShade.Tokens.weakerThanDescendants, purpose)
