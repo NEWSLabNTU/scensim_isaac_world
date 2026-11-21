@@ -203,5 +203,84 @@ class Check(unittest.TestCase):
         self.assertTrue(any("no such file" in x for x in out["problems"]), out)
 
 
+
+@unittest.skipIf(Usd is None, "no pxr")
+class Layered(unittest.TestCase):
+    """The layered field (roadmap 091 W14): physics required, evidence and sources recorded."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = os.path.join(self.tmp.name, "lab")
+        os.makedirs(os.path.join(self.d, "isaac"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def world(self, evidence=None):
+        wy = os.path.join(self.d, "isaac", "world.yaml")
+        with open(wy, "w") as f:
+            f.write("usd: field.usda\nauthored: true\n")
+            if evidence is not None:
+                f.write("evidence: [" + ", ".join(evidence) + "]\n")
+        with open(os.path.join(self.d, "lanelet2_map.osm"), "w") as f:
+            f.write("<osm/>\n")
+        return wy
+
+    def test_a_visual_layer_alone_is_refused(self):
+        root = os.path.join(self.d, "field.usda")
+        stage = Usd.Stage.CreateNew(root)
+        UsdGeom.SetStageMetersPerUnit(stage, 1.0)
+        UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
+        UsdGeom.Mesh.Define(stage, "/field/scan_mesh")  # visual only, no collider
+        stage.GetRootLayer().Save()
+        p = stage_record.check(root, CLASSES)
+        self.assertTrue(any("no collider" in x and "physics layer" in x for x in p), p)
+
+    def test_evidence_is_hashed_and_a_missing_one_refused(self):
+        field(self.d, sub=False, texture=False)
+        os.makedirs(os.path.join(self.d, "scan"))
+        with open(os.path.join(self.d, "scan", "field.e57"), "wb") as f:
+            f.write(b"points")
+        wy = self.world(["scan/field.e57"])
+        self.assertEqual(stage_record.check_map(wy)["problems"], [])
+        rec = stage_record.record(os.path.join(self.d, "field.usda"), map_dir=self.d)
+        self.assertEqual(list(rec["evidence"]), [os.path.join("scan", "field.e57")])
+        self.assertEqual(rec["evidence"][os.path.join("scan", "field.e57")],
+                         stage_record.file_sha256(os.path.join(self.d, "scan", "field.e57")))
+        wy = self.world(["scan/gone.e57", "../outside.e57"])
+        p = stage_record.check_map(wy)["problems"]
+        self.assertTrue(any("gone.e57: no such file" in x for x in p), p)
+        self.assertTrue(any("outside the map directory" in x for x in p), p)
+
+    def test_measured_attributes_and_their_sources(self):
+        root = field(self.d, sub=False, texture=False, mu=0.62)
+        stage = Usd.Stage.Open(root)
+        mat = stage.GetPrimAtPath("/field/Looks/phys")
+        with open(os.path.join(self.d, "tilt.csv"), "w") as f:
+            f.write("angle,slid\n31.8,1\n")
+        mat.CreateAttribute(stage_record.SOURCE_ATTR, Sdf.ValueTypeNames.Asset).Set("tilt.csv")
+        cone = UsdGeom.Xform.Define(stage, "/field/cone").GetPrim()
+        UsdPhysics.MassAPI.Apply(cone).CreateMassAttr(0.42)
+        cone.CreateAttribute(stage_record.SOURCE_ATTR, Sdf.ValueTypeNames.String).Set(
+            "kitchen scale, 2026-11-21")
+        stage.GetRootLayer().Save()
+        meas, notes = stage_record.measured(Usd.Stage.Open(root))
+        f = meas["/field/Looks/phys.dynamicFriction"]
+        self.assertAlmostEqual(f["value"], 0.62, places=6)
+        self.assertEqual(f["source"]["path"], "tilt.csv")
+        self.assertEqual(f["source"]["sha256"],
+                         stage_record.file_sha256(os.path.join(self.d, "tilt.csv")))
+        self.assertEqual(meas["/field/cone.mass"],
+                         {"value": 0.41999998688697815, "source": "kitchen scale, 2026-11-21"})
+        self.assertEqual(notes, [])
+        self.assertEqual(stage_record.record(root)["measured"], meas)
+
+    def test_an_unsourced_friction_is_a_note_not_a_refusal(self):
+        field(self.d, sub=False, texture=False, mu=0.7)
+        out = stage_record.check_map(self.world())
+        self.assertEqual(out["problems"], [])
+        self.assertTrue(any("/field/Looks/phys: dynamicFriction 0.7 has no scensim:source" in x
+                            for x in out["notes"]), out)
+
 if __name__ == "__main__":
     unittest.main()

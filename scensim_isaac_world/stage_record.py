@@ -9,8 +9,16 @@ and writes it beside the map's state (`write`), where the run reads it.
 
 `check` gives what the map check refuses in an authored world: units other than metres, an up
 axis other than Z, a PhysX vehicle prim, an unresolved dependency, and what `authored.problems`
-finds (an unknown class token, a friction out of range); `check_map` adds a map directory with no
-`lanelet2_map.osm` (W17's `loop` makes one).
+finds (an unknown class token, a friction out of range), and a stage with no collider (a visual
+layer of splats or a mesh has no collision: the physics layer is required, W14); `check_map`
+adds a map directory with no `lanelet2_map.osm` (W17's `loop` makes one) and a missing evidence
+file, and gives `notes`: an authored friction with no `scensim:source`.
+
+The layered field (W14, design 3.1): the root stage sublayers a visual layer (NuRec splats or a
+mesh) and the physics layer of colliders; the raw scan is evidence, listed in `world.yaml`'s
+`evidence:` (paths relative to the map directory), never composed, and hashed into the record
+(`evidence`). A measured attribute carries its source on its prim, `scensim:source` (a note, or
+an asset path to the measurement's file, hashed); the record lists them (`measured`).
 """
 import hashlib
 import json
@@ -23,6 +31,8 @@ from pxr import Sdf, Usd, UsdGeom, UsdUtils
 from . import authored
 
 FILE = "stage.json"  # in the map's state directory
+SOURCE_ATTR = "scensim:source"  # a measured attribute's source, on its prim (W14)
+EVIDENCE_KEY = "evidence"       # world.yaml: the scan and other evidence, beside the stage
 CACHE = "stage-hashes.json"  # beside it: {path: [size, mtime_ns, sha256]}
 CHUNK = 1 << 20
 
@@ -139,7 +149,71 @@ def digest(layers, assets):
     return h.hexdigest()
 
 
-def record(root, overrides=None, records=None, cache=None):
+def evidence_of(map_dir, sha=file_sha256):
+    """`({file: sha256}, problems)` of the map's evidence (`world.yaml`'s `evidence:`, paths
+    relative to the map directory): each file hashed; a missing one, or an entry that is not a
+    path inside the map directory, is a problem naming it."""
+    import yaml
+    wy = os.path.join(map_dir, "isaac", "world.yaml")
+    try:
+        with open(wy) as f:
+            w = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return {}, []
+    items = w.get(EVIDENCE_KEY) or []
+    if isinstance(items, str) or not isinstance(items, list):
+        return {}, [f"{wy}: {EVIDENCE_KEY}: a list of files, relative to the map directory"]
+    out, problems = {}, []
+    base = os.path.realpath(map_dir)
+    for item in items:
+        path = os.path.realpath(os.path.join(map_dir, str(item)))
+        if not path.startswith(base + os.sep):
+            problems.append(f"{wy}: {EVIDENCE_KEY}: {item}: outside the map directory")
+        elif not os.path.isfile(path):
+            problems.append(f"{wy}: {EVIDENCE_KEY}: {item}: no such file")
+        else:
+            out[os.path.relpath(path, base)] = sha(path)
+    return out, problems
+
+
+def measured(stage, sha=file_sha256):
+    """`({"<prim>.<attr>": {"value", "source"}}, notes)`: the measured attributes an authored
+    stage holds (a physics material's frictions and restitution, a body's mass), each with its
+    prim's `scensim:source`: a note as written, or an asset's `{"path", "sha256"}` (None when
+    it does not resolve to a file), or None. `notes`: a material's dynamicFriction with no
+    source (design F3: measure, then store with the source)."""
+    from pxr import UsdPhysics
+    out, notes = {}, []
+    for prim in stage.Traverse():
+        attrs = []
+        if prim.HasAPI(UsdPhysics.MaterialAPI):
+            m = UsdPhysics.MaterialAPI(prim)
+            attrs += [("dynamicFriction", m.GetDynamicFrictionAttr()),
+                      ("staticFriction", m.GetStaticFrictionAttr()),
+                      ("restitution", m.GetRestitutionAttr())]
+        if prim.HasAPI(UsdPhysics.MassAPI):
+            attrs.append(("mass", UsdPhysics.MassAPI(prim).GetMassAttr()))
+        attrs = [(n, a) for n, a in attrs if a and a.HasAuthoredValue()]
+        if not attrs:
+            continue
+        src_attr = prim.GetAttribute(SOURCE_ATTR)
+        source = None
+        if src_attr and src_attr.HasAuthoredValue():
+            v = src_attr.Get()
+            if isinstance(v, Sdf.AssetPath):
+                path = _local(v.resolvedPath)
+                source = {"path": v.path, "sha256": sha(path) if path else None}
+            else:
+                source = str(v)
+        for n, a in attrs:
+            out[f"{prim.GetPath()}.{n}"] = {"value": float(a.Get()), "source": source}
+            if n == "dynamicFriction" and source is None:
+                notes.append(f"{prim.GetPath()}: dynamicFriction {float(a.Get()):g} has no "
+                             f"{SOURCE_ATTR} (the measurement it came from)")
+    return out, notes
+
+
+def record(root, overrides=None, records=None, cache=None, map_dir=None):
     """`provenance.stage` for the stage file `root`: `{root, path, sha256, layers, assets,
     overrides, records, hashing}`. `overrides`: `{attribute: {"authored", "used"}}` the run
     replaced (the world's `stage_overrides`); `records`: `{name: path}` of the map's Track C
@@ -149,9 +223,11 @@ def record(root, overrides=None, records=None, cache=None):
     cache = cache if cache is not None else HashCache()
     t0 = time.monotonic()
     layers, assets = dependencies(root, cache)
+    evidence, _ = evidence_of(map_dir, cache) if map_dir else ({}, [])
+    meas, _ = measured(Usd.Stage.Open(root), cache)
     cache.save()
     hashing = {"seconds": round(time.monotonic() - t0, 3), "files_hashed": cache.hashed,
-               "files": len(layers) + len(assets)}
+               "files": len(layers) + len(assets) + len(evidence)}
     return {"root": os.path.basename(root),
             "path": root,
             "sha256": digest(layers, assets),
@@ -160,6 +236,8 @@ def record(root, overrides=None, records=None, cache=None):
             "overrides": dict(overrides or {}),
             "records": {name: file_sha256(p) if p and os.path.isfile(p) else None
                         for name, p in sorted((records or {}).items())},
+            "evidence": evidence,
+            "measured": meas,
             "hashing": hashing}
 
 
@@ -199,6 +277,7 @@ def check(root, classes):
     up = UsdGeom.GetStageUpAxis(stage)
     if up != UsdGeom.Tokens.z:
         out.append(f"{root}: upAxis is {up}, not Z")
+    colliders = 0
     for prim in stage.Traverse():
         # the authored list, not GetAppliedSchemas: that drops schemas pxr has no plugin for
         # (usd-core has none of PhysX's)
@@ -208,6 +287,11 @@ def check(root, classes):
         if apis:
             out.append(f"{prim.GetPath()}: {', '.join(apis)}: a PhysX vehicle in the field "
                        "(the car comes from its spec, not the map)")
+        colliders += any(str(a) == "PhysicsCollisionAPI" for a in names)
+    if not colliders:
+        out.append(f"{root}: no collider (UsdPhysics.CollisionAPI) in the stage: a visual layer "
+                   "of splats or a mesh has no collision; author the physics layer (floor, "
+                   "walls) in Isaac's editor (design 3.1)")
     out += authored.problems(stage, classes)
     try:
         dependencies(root)
@@ -229,8 +313,9 @@ def classes_of(surfaces_file=None):
 
 def check_map(world_file, state_dir=None):
     """The map check of a map's `isaac/world.yaml`: `{"map", "authored", "stage",
-    "problems"}`; a map that is not `authored: true` is not checked (`problems` empty). Its
-    `surfaces.yaml` is the state directory's over the map directory's, as the server's."""
+    "problems", "notes"}`; a map that is not `authored: true` is not checked (`problems` empty).
+    Its `surfaces.yaml` is the state directory's over the map directory's, as the server's.
+    `notes` refuse nothing: an authored friction with no `scensim:source`."""
     import yaml
 
     from . import names
@@ -239,7 +324,7 @@ def check_map(world_file, state_dir=None):
         w = yaml.safe_load(f) or {}
     map_dir = names.map_dir_of(world_file)
     out = {"map": names.map_name(map_dir), "authored": w.get("authored", False) is True,
-           "stage": None, "problems": []}
+           "stage": None, "problems": [], "notes": []}
     if not out["authored"]:
         return out
     try:
@@ -253,12 +338,17 @@ def check_map(world_file, state_dir=None):
         out["problems"].append(f"{map_dir}: no lanelet2_map.osm (SSv2 needs one); make the loop "
                                "with `python -m scensim_isaac_world.loop <map dir> --centreline "
                                "<x,y csv>` or `--prim <BasisCurves prim>`")
+    out["problems"] += evidence_of(map_dir)[1]
     if not usd or not os.path.isfile(usd):
         out["problems"].append(f"{world_file}: usd: {usd or 'none'}: no such file")
         return out
     surfaces_file = names.find_file("surfaces.yaml", map_dir,
                                     names.state_for(state_dir, map_dir))
     out["problems"] += check(usd, classes_of(surfaces_file))
+    try:
+        out["notes"] = measured(Usd.Stage.Open(os.path.realpath(usd)))[1]
+    except Exception:  # noqa: BLE001 - a stage that does not open is check()'s problem
+        pass
     return out
 
 
