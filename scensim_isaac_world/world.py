@@ -1401,7 +1401,8 @@ class IsaacWorld(WorldBase):
                 q = ego.state.quat
                 twist = (body_motion.rotate(q, ego.state.velocity),
                          body_motion.rotate(q, ego.state.angular_velocity))
-                states.append((handle, (ego.state.position, q), twist))
+                # and the command it ran this frame (092 K2.4: the truth's `command`)
+                states.append((handle, (ego.state.position, q), twist, ego.taken_command()))
                 continue
             if handle in tracked:
                 states.append((handle, *tracked[handle]))
