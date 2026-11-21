@@ -18,6 +18,9 @@ uv pip install "isaacsim[all,extscache]==6.2.0.0" --extra-index-url https://pypi
 # isaacsim[all] brings torchvision 0.26.0 from PyPI, built for CUDA 13, against torch 2.11.0+cu128:
 # `import torchvision` then fails ("operator torchvision::nms does not exist"). The cu128 build.
 uv pip install torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128 --reinstall-package torchvision
+# --prerelease=allow above lets newton and mujoco-warp (warp-lang>=1.17.0, >=1.15) take a 1.20.0
+# dev build; Isaac Lab 3.0.0 pins 1.17.0, which both accept (isaacsim itself pins none): that one.
+uv pip install warp-lang==1.17.0 --reinstall-package warp-lang
 uv pip install pyzmq  # the scensim world protocol (037) and the lockstep spike
 uv pip install pytest  # aib's test-isaac lane imports it (two of its suites; no Isaac venv had it)
 python -c "import importlib.metadata as m; print('isaacsim', m.version('isaacsim'))"
