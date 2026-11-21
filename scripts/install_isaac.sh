@@ -19,6 +19,7 @@ uv pip install "isaacsim[all,extscache]==6.2.0.0" --extra-index-url https://pypi
 # `import torchvision` then fails ("operator torchvision::nms does not exist"). The cu128 build.
 uv pip install torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128 --reinstall-package torchvision
 uv pip install pyzmq  # the scensim world protocol (037) and the lockstep spike
+uv pip install pytest  # aib's test-isaac lane imports it (two of its suites; no Isaac venv had it)
 python -c "import importlib.metadata as m; print('isaacsim', m.version('isaacsim'))"
 PYTHONNOUSERSITE=1 python -c "import torch, torchvision; print('torch', torch.__version__, 'torchvision', torchvision.__version__)"
 echo INSTALL-DONE
