@@ -71,6 +71,125 @@ class Section:
         return (self.half_width + self.shoulder + self.ditch_depth / self.foreslope
                 + self.ditch_bottom + edge / self.backslope)
 
+    # the interface StationSection shares: the same section at every u
+    def height_uv(self, u, v):
+        """The section's height at (u, v), m above the base."""
+        return self.height(v)
+
+    def carriageway(self, u):
+        """The carriageway's half width at u, m."""
+        return np.full(np.shape(u), float(self.half_width))
+
+    def edge(self, u, v):
+        """Where the shoulder ends on v's side at u, m from the centreline."""
+        return np.full(np.shape(u), float(self.half_width + self.shoulder))
+
+    def narrowest(self):
+        """The carriageway's least half width, m."""
+        return float(self.half_width)
+
+    def describe(self):
+        return f"half width {self.half_width:g} m, crown {self.crown:g}"
+
+
+class StationSection:
+    """The cross-section per station of a road record (road_record.Stations; roadmap 086 C5),
+    each field interpolated linearly in u between stations and held past the ends. On top of
+    Section's shape, per station: the bank (the formation rolled about the centreline, positive
+    leaning left), the crown line `crown_offset` m left of the centreline, each side's own crown,
+    shoulder, foreslope, ditch and backslope, and the lip: a drop of `lip_h` from the
+    carriageway's edge to the shoulder over a face of `lip_angle` (90: a step, which the tiles'
+    SPACING samples as one cell's ramp). Past the ditch the backslope runs back to the base.
+    With one constant, symmetric, unbanked section without a lip it is Section's, to rounding."""
+
+    COMMON = ("half_width", "bank", "crown_offset")
+    SIDE = ("crown", "shoulder", "foreslope", "ditch_depth", "ditch_bottom", "backslope",
+            "lip_h", "lip_angle")
+
+    def __init__(self, stations):
+        st = stations
+        self.u = np.asarray(st.u, dtype=float)
+        self.common = {k: np.asarray(st.common[k], dtype=float) for k in self.COMMON}
+        self.side = {k: np.asarray(st.side[k], dtype=float) for k in self.SIDE}
+        self.n = len(self.u)
+
+    def _at(self, a, u):
+        return a[0] + 0.0 * u if self.n == 1 else np.interp(u, self.u, a)
+
+    def _fields(self, u, v):
+        """Every field at u, a side's taken on v's side (left: v >= 0)."""
+        left = v >= 0
+        f = {k: self._at(a, u) for k, a in self.common.items()}
+        for k, a in self.side.items():
+            f[k] = np.where(left, self._at(a[0], u), self._at(a[1], u))
+        return f
+
+    def height_uv(self, u, v):
+        """The section's height at (u, v), m above the base."""
+        u, v = np.broadcast_arrays(np.asarray(u, dtype=float), np.asarray(v, dtype=float))
+        f = self._fields(u, v)
+        a = np.abs(v)
+        w, sh = f["half_width"], f["shoulder"]
+        off = f["crown_offset"]
+        # the crown: down and away from the crown line, each side's own slope (the side of
+        # the crown line a point is on), across the carriageway and the shoulder
+        cw = v - off
+        crown = np.where(cw >= 0, self._at(self.side["crown"][0], u),
+                         self._at(self.side["crown"][1], u))
+        h = -crown * np.abs(np.where(a <= w + sh, v, np.sign(v) * (w + sh)) - off)
+        # the lip: the shoulder lies lip_h below the carriageway's edge, the face lip_h /
+        # tan(lip_angle) wide
+        lip = f["lip_h"]
+        face = np.where(f["lip_angle"] >= 90.0, 0.0,
+                        lip / np.tan(np.radians(np.minimum(f["lip_angle"], 89.999))))
+        x_lip = a - w
+        drop = np.where(x_lip <= 0, 0.0,
+                        np.where(face > 0, lip * np.clip(x_lip / np.where(face > 0, face, 1.0),
+                                                         0.0, 1.0), lip))
+        h = h - drop
+        edge = h  # at the shoulder's end (a > w + sh: the clamped crown, less the lip)
+        # past the shoulder: the foreslope, the ditch's bottom, then the backslope
+        x = a - (w + sh)
+        fore = f["ditch_depth"] / f["foreslope"]
+        bottom = edge - f["ditch_depth"]
+        h = np.where(x > 0, edge - f["foreslope"] * x, h)
+        h = np.where(x > fore, bottom, h)
+        # the bank rolls the formation (to the ditch's far side) about the centreline
+        formation_end = w + sh + fore + f["ditch_bottom"]
+        tb = np.tan(f["bank"])
+        h = h - tb * np.where(a <= formation_end, v, np.sign(v) * formation_end)
+        start = bottom - tb * np.sign(v) * formation_end  # the backslope's foot, banked
+        x2 = a - formation_end
+        up = np.where(start <= 0, np.minimum(start + f["backslope"] * x2, 0.0),
+                      np.maximum(start - f["backslope"] * x2, 0.0))
+        return np.where(x2 > 0, up, h)
+
+    def carriageway(self, u):
+        return self._at(self.common["half_width"], np.asarray(u, dtype=float))
+
+    def edge(self, u, v):
+        u, v = np.broadcast_arrays(np.asarray(u, dtype=float), np.asarray(v, dtype=float))
+        f = self._fields(u, v)
+        return f["half_width"] + f["shoulder"]
+
+    def narrowest(self):
+        return float(np.min(self.common["half_width"]))
+
+    def extent(self):
+        """The half width beyond which every station's section is the base's own, m."""
+        w = self.common["half_width"][None, :]
+        sd = self.side
+        tb = np.abs(np.tan(self.common["bank"]))[None, :]
+        reach = w + sd["shoulder"] + sd["ditch_depth"] / sd["foreslope"] + sd["ditch_bottom"]
+        far = (np.abs(sd["crown"]) * (w + sd["shoulder"] + np.abs(self.common["crown_offset"]))
+               + sd["lip_h"] + sd["ditch_depth"] + tb * reach)
+        return float(np.max(reach + far / sd["backslope"]))
+
+    def describe(self):
+        hw = self.common["half_width"]
+        return (f"half width {hw.min():g} to {hw.max():g} m, bank up to "
+                f"{np.degrees(np.abs(self.common['bank']).max()):.1f} deg, per station")
+
 
 @dataclass
 class Roughness:
@@ -185,7 +304,7 @@ class Corridor:
 
     centreline: np.ndarray
     seed: int = 0
-    section: Section = field(default_factory=Section)
+    section: Section = field(default_factory=Section)  # or StationSection (086 C5)
     roughness: Roughness = field(default_factory=Roughness)
     ruts: Ruts = None
     potholes: Potholes = None
@@ -261,8 +380,8 @@ class Corridor:
             for _ in range(rng.poisson(rate)):
                 r = rng.uniform(*ph.diameter) / 2
                 out.append((u0 + rng.uniform(0, 100.0),
-                            rng.uniform(-self.section.half_width + r,
-                                        self.section.half_width - r),
+                            rng.uniform(-self.section.narrowest() + r,
+                                        self.section.narrowest() - r),
                             rng.uniform(*ph.depth), r))
         return np.array(out).reshape(-1, 4)
 
@@ -281,8 +400,8 @@ class Corridor:
 
     def features(self, u, v):
         """Everything but the roughness at road coordinates (u, v), m."""
-        h = self.section.height(v)
-        inside = np.abs(v) <= self.section.half_width
+        h = self.section.height_uv(u, v)
+        inside = np.abs(v) <= self.section.carriageway(u)
         if self.ruts is not None:
             h = h + np.where(inside, self.ruts.height(v), 0.0)
         for (pu, pv, depth, r) in self._holes:
@@ -394,7 +513,7 @@ class Detail:
                     wy = np.sin(math.pi * oy / (2 * n))
                     r += f[np.ix_(oy % (2 * n), ox % (2 * n))] * np.outer(wy, wx)
             # the roughness is the carriageway's and its shoulders', fading out over the ditch
-            fade = np.clip((c.section.half_width + c.section.shoulder + 1.0 - np.abs(v)), 0, 1)
+            fade = np.clip((c.section.edge(u, v) + 1.0 - np.abs(v)), 0, 1)
             out += np.where(near, (h + r * fade) * c.weight(u), 0.0)
         return out
 
@@ -430,9 +549,9 @@ class Detail:
                            j * self.tile + np.arange(n + 1) * d)
         out = np.zeros(X.shape, dtype=np.int8)
         for c in self.corridors:
-            _, v, near = c.uv(X, Y)
-            v, near = v.reshape(X.shape), near.reshape(X.shape)
-            road = near & (np.abs(v) <= c.section.half_width + c.section.shoulder)
+            u, v, near = c.uv(X, Y)
+            u, v, near = u.reshape(X.shape), v.reshape(X.shape), near.reshape(X.shape)
+            road = near & (np.abs(v) <= c.section.edge(u, v))
             out = np.maximum(out, np.where(road, self.ROAD, np.where(near, self.VERGE,
                                                                      self.OUTSIDE)))
         return out

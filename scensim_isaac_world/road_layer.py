@@ -138,9 +138,10 @@ def keys():
 
 def parse(data, where=FILE, base=None, notes=None, classes=None):
     """The corridors of a road_detail.yaml's contents; RoadDetailError lists every problem.
-    `base`: the directory a corridor's `stations` file is in (the YAML's). A section the road
-    layer cannot shape the road with yet (`road_record.detail_section`) is a problem, or, with
-    a `notes` list, a note there and the first station's left side for the detail. `classes`:
+    `base`: the directory a corridor's `stations` file is in (the YAML's). A constant, symmetric,
+    level section is `road_detail.Section`; any other is shaped per station
+    (`road_detail.StationSection`, 086 C5). `notes`: a list for what the world server only
+    notes. `classes`:
     the surface class names a section's surfaces must be (086 C2; None: not checked)."""
     problems = []
     kinds = _kinds()
@@ -276,17 +277,10 @@ def _section(c, line, base, at, problems, notes, classes=None):
                 found = True
     if st is None or found:
         return st, None
-    section, why = rr.detail_section(st, rd.Section)
-    if section is None:
-        say = (f"{at}: the Isaac road layer shapes a section like this from roadmap 086 C5 "
-               f"({why})")
-        if notes is None:
-            problems.append(say)
-            return st, None
-        notes.append(say + "; the detail here takes its first station's left side")
-        section = rd.Section(**{k: float(st.common[k][0]) if k in st.common
-                                else float(st.side[k][0, 0]) for k in rr.DETAIL})
-    return st, section
+    # one constant, symmetric, level section is Section's; any other is shaped per station
+    # (086 C5): banked, an offset crown, a lip, or changing along the road or between sides
+    section, _ = rr.detail_section(st, rd.Section)
+    return st, (section if section is not None else rd.StationSection(st))
 
 
 def load(path, notes=None, classes=None):
@@ -323,7 +317,7 @@ def describe(corridors):
     for k, c in enumerate(corridors):
         parts = [f"{c.length:.0f} m", f"seed {c.seed}",
                  f"roughness {c.roughness.cls if not c.roughness.gd0 else c.roughness.gd0}",
-                 f"half width {c.section.half_width:g} m, crown {c.section.crown:g}"]
+                 c.section.describe()]
         if c.ruts is not None:
             parts.append(f"ruts {c.ruts.depth:g} m")
         if c.potholes is not None:

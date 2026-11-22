@@ -124,18 +124,13 @@ class Stations(unittest.TestCase):
                      "crown_left has shape (3,), u has 4 stations", "hazard 'lava'"):
             self.assertIn(want, text)
 
-    def test_a_record_the_road_layer_cannot_shape_yet_is_refused_by_the_world_server(self):
+    def test_a_banked_record_with_a_lip_is_shaped_per_station(self):
         bank = np.zeros(121)
         bank[60:] = 0.05
         name = self.write(stations(bank=bank, lip_h=np.full((2, 121), 0.08)))
-        with self.assertRaises(rl.RoadDetailError) as e:
-            self.corridor(stations=name)
-        self.assertIn("roadmap 086 C5 (it is banked; it has a lip)", str(e.exception))
-        notes = []
-        c, = rl.parse({"corridors": [{"centreline": LINE, "stations": name}]},
-                      base=self.dir, notes=notes)
-        self.assertEqual(c.section, rd.Section())
-        self.assertIn("first station's left side", notes[0])
+        c, = self.corridor(stations=name)  # no longer refused (086 C5)
+        self.assertIsInstance(c.section, rd.StationSection)
+        self.assertIn("per station", rl.describe([c])[0])
 
     def test_section_or_stations_not_both_and_stations_is_an_npz(self):
         with self.assertRaises(rl.RoadDetailError) as e:

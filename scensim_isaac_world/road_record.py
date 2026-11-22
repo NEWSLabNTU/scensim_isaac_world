@@ -17,7 +17,8 @@ centreline, from 0, increasing) gives the stations. The .npz may hold the centre
 in place of the YAML's `centreline`; `u` is then the distance along it. A field left out takes its default
 everywhere. Every problem found is listed (`RoadRecordError`), with where it is.
 
-Who reads what: the Isaac road layer takes the section's shape (`detail_section`); the rails,
+Who reads what: the Isaac road layer takes the section's shape (`detail_section`, else
+road_detail.StationSection per station, 086 C5); the rails,
 the surface strips and the planner read the rest (086's later steps).
 """
 from dataclasses import dataclass
@@ -285,10 +286,10 @@ def save_stations(path, st):
 
 
 def detail_section(st, cls):
-    """The Isaac road layer's section (`cls`, road_detail.Section) for stations `st`, or why
-    it has none: `(Section or None, reason)`. Today's road layer shapes the road with one
-    section, symmetric, unbanked, without a lip; a record whose shape differs along the road
-    or across it is the road layer's from roadmap 086 C5."""
+    """The one section (`cls`, road_detail.Section) stations `st` reduce to, or why they do
+    not: `(Section or None, reason)`. A record that does not (banked, an offset crown, a lip,
+    or a shape that changes along the road or across it) is shaped per station by
+    road_detail.StationSection (086 C5)."""
     why = []
     for k in DETAIL:
         if not st.constant(k):
