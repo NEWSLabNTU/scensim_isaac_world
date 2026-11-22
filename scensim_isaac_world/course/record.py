@@ -97,8 +97,10 @@ def build(c, course, m):
     return rr.Stations(u, common, side, text, xyz)
 
 
-def write(work, st):
-    """`<work>/road_detail.yaml` and `<work>/section.npz`; returns a short summary."""
+def write(work, st, in_mesh=False):
+    """`<work>/road_detail.yaml` and `<work>/section.npz`; returns a short summary. `in_mesh`:
+    the course's road mesh carries the section (a fixture's, 086 C5b), which the YAML says, so
+    the road layer given it adds the features only."""
     import os
 
     rr.save_stations(os.path.join(work, NPZ), st)
@@ -107,7 +109,9 @@ def write(work, st):
                 "# builder's record step: the section per station and the centreline in\n"
                 f"# {NPZ}. In course/, so it is not the map's road detail (the world server\n"
                 "# reads <map dir>/road_detail.yaml).\n"
-                f"schema: {rr.SCHEMA}\ncorridors:\n  - stations: {NPZ}\n")
+                f"schema: {rr.SCHEMA}\ncorridors:\n  - stations: {NPZ}\n"
+                + ("    section_in_base: true   # the road mesh carries the section (086 C5b)\n"
+                   if in_mesh else ""))
     out = {"stations": len(st), "length_m": round(float(st.u[-1]), 1)}
     for i, s in enumerate(rr.SIDES):
         h = st.text["hazard"][i]

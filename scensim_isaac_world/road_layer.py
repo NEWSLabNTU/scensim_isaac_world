@@ -22,6 +22,7 @@ car the layer steps.
         roughness: {cls: C}           # road_detail.Roughness's fields
         section: {half_width: 1.5, crown: 0.0}   # road_record's fields: a level forest road
         # or, per station: stations: forest.npz  (beside this file; road_record)
+        section_in_base: false        # true: the world's road mesh carries the section (086 C5b)
         ruts: {}                      # Ruts' defaults; absent: none
         potholes: {per_100m: 2}
         washboard: [{u0: 120, u1: 180, pitch: 0.5}]
@@ -104,6 +105,9 @@ CORRIDOR_KEYS = {
     "water_bars": "oblique ridges across the road (a mapping; absent: none)",
     "rocks": "rock cover per part of the section (a mapping; absent: no rocks)",
     "taper": "m over which the detail fades in and out at the ends (default 0)",
+    "section_in_base": "true when the world's road already carries the section (a course built "
+                       "from its record, 086 C5b): the layer adds the features only (default "
+                       "false)",
 }
 
 
@@ -230,8 +234,13 @@ def parse(data, where=FILE, base=None, notes=None, classes=None):
             # the world's ground not filtered out for the rocks: loose ones only where it
             # does not hold them over the true surface (rocks.place)
             args["rocks"] = dataclasses.replace(args["rocks"], loose_below=rk.LOOSE_BELOW)
+        in_base = c.get("section_in_base", False)
+        if not isinstance(in_base, bool):
+            problems.append(f"{at}.section_in_base: true or false")
+            in_base = False
         out.append(rd.Corridor(line, seed=int(c.get("seed", k)), washboard=tuple(zones),
-                               taper=float(c.get("taper", 0.0)), stations=stations, **args))
+                               taper=float(c.get("taper", 0.0)), stations=stations,
+                               section_in_base=in_base, **args))
     if problems:
         raise RoadDetailError("\n".join(problems))
     return out

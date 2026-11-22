@@ -125,6 +125,11 @@ def add_props(stage, course, m, c, work, rng):
     # directory with the link to SCENSIM_CARLA_USD (`names.staged_world`).
     # no default set (roadmap 077 G75): the stack's SCENSIM_CARLA_USD, else CARLA_USD (the order
     # isaac_town.sh takes them in)
+    spec = course.get("props") or {}
+    if not spec:  # a course with no props (086 C5b's fixture): none, and no asset set needed
+        pts = np.zeros((0, 3), np.float32)
+        np.save(os.path.join(work, "props_points.npy"), pts)
+        return pts
     root = os.environ.get("SCENSIM_CARLA_USD") or os.environ.get("CARLA_USD")
     if not root:
         raise RuntimeError("a course's props need the CARLA USD set: set CARLA_USD (or "
@@ -139,7 +144,6 @@ def add_props(stage, course, m, c, work, rng):
         """(the layer-relative reference, the path to read the asset from here)"""
         return f"./{LINK}/{asset}", os.path.join(link, asset)
 
-    spec = course.get("props") or {}
     half = float(m["half_width"])
     near = cKDTree(np.stack([c["x"], c["y"]], axis=1))
     samples = []

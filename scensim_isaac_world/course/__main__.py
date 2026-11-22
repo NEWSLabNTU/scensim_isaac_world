@@ -10,6 +10,7 @@ import yaml
 
 from . import centreline as cl
 from . import data
+from . import fixture
 from . import geometry
 from . import maps
 from . import record
@@ -103,8 +104,11 @@ def preview(meshes, photo, out):
 
 
 def write_record(work, course):
-    """086 C3: the course's road record from centreline.npz and meshes.npz (`record`)."""
+    """086 C3: the course's road record from centreline.npz and meshes.npz (`record`); a
+    fixture's from its spec (C5b)."""
     c = np.load(os.path.join(work, "centreline.npz"))
+    if fixture.is_fixture(course):
+        return record.write(work, fixture.stations(course, c), in_mesh=True)
     m = np.load(os.path.join(work, "meshes.npz"))
     return record.write(work, record.build(c, course, m))
 
@@ -117,6 +121,31 @@ def saved_centreline(work):
     with open(os.path.join(work, "centreline.json")) as f:
         hairpins = json.load(f)["hairpins"]
     return c, hairpins
+
+
+def main_fixture(course, frame, map_dir, work, steps):
+    """086 C5b: a fixture course's steps, from its `fixture:` block (no fetch)."""
+    from .. import road_detail as rd
+
+    c = fixture.centreline(course)
+    if "centreline" in steps:
+        print(json.dumps(fixture.write_centreline(work, c)))
+        fixture.photo(os.path.join(work, "photo.jpg"))
+    st = fixture.stations(course, c)
+    if "geometry" in steps:
+        dem = fixture.Dem(course, c, frame)
+        g = geometry.build(c, course, dem, frame, (0, 0, 1, 1), 0,
+                           os.path.join(work, "meshes.npz"), rd.StationSection(st))
+        print("geometry:", json.dumps(g))
+    if "record" in steps:
+        print("record:", json.dumps(record.write(work, st, in_mesh=True)))
+    if "maps" in steps:
+        mp = maps.build(c, course, frame, map_dir, course.get("speed_limit_kmh", 60.0))
+        json.dump(mp, open(os.path.join(work, "maps.json"), "w"), indent=1)
+        print("maps:", json.dumps({k: (v if not isinstance(v, list) else len(v)) for k, v in mp.items()}))
+    if "scenario" in steps:
+        print("scenario:", json.dumps(scenario.build(c, [], course, map_dir)))
+    return 0
 
 
 def main(argv=None):
@@ -136,6 +165,8 @@ def main(argv=None):
         print("scenario:", json.dumps(scenario.build(*saved_centreline(work), course, a.map_dir)))
         return 0
     frame = cl.Frame(course["origin"])
+    if fixture.is_fixture(course):
+        return main_fixture(course, frame, a.map_dir, work, a.steps)
     road = course["road"]
 
     ways = data.osm_ways(raw, road["overpass"], road["box"])

@@ -314,6 +314,7 @@ class Corridor:
     rocks: object = None  # rocks.Zones: the rock cover by zone (R4); None: no rocks
     taper: float = 0.0
     stations: object = None  # road_record.Stations: the section per station (086 C1)
+    section_in_base: bool = False  # the base road carries the section (086 C5b): features only
 
     def __post_init__(self):
         line = np.asarray(self.centreline, dtype=float)
@@ -400,7 +401,8 @@ class Corridor:
 
     def features(self, u, v):
         """Everything but the roughness at road coordinates (u, v), m."""
-        h = self.section.height_uv(u, v)
+        h = (np.zeros(np.broadcast(u, v).shape) if self.section_in_base
+             else self.section.height_uv(u, v))
         inside = np.abs(v) <= self.section.carriageway(u)
         if self.ruts is not None:
             h = h + np.where(inside, self.ruts.height(v), 0.0)

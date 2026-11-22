@@ -1,0 +1,45 @@
+# Roadmap 086 C5b's fixture course: a road made up to test the record's section in Isaac, not a
+# place. Its centreline and section are the `fixture:` block's, not OSM's or a DEM's: a stated
+# crown, a bank rising from 0 to 6 % through a bend, an offset and asymmetric crown, and a lip.
+# Built by the course builder as any course is (`python3 -m scensim_isaac_world.course
+# courses/fixture_c5.yaml <map dir>`), the record's section carried by the road mesh.
+name: fixture_c5
+# A fixture's arbitrary datum, so the map frame and Autoware's projector work as for a real
+# course. It names no place: nothing here was measured there.
+origin: {lat: 36.0, lon: 140.0, alt: 0.0}
+road:
+  lanes: 2
+  lane_width: 3.25
+  shoulder: 0.75
+# Terrain: the section's box plus this margin, m
+margin: 40.0
+speed_limit_kmh: 40
+fixture:
+  grade: -0.03          # along the whole course, downhill as haruna_down
+  terrain_below: 0.30   # m: the flat ground across, below the road's centreline
+  # the plan, in order from s = 0: straight (m), clothoid (m, to curvature 1/m, linear in s
+  # from the previous), arc (m, at the previous curvature)
+  plan:
+    - {straight: 150.0}
+    - {clothoid: 60.0, to: 0.0166666667}    # to R 60 m, left
+    - {arc: 90.0}                            # 86 deg
+    - {clothoid: 60.0, to: 0.0}
+    - {straight: 150.0}
+  # the section at these s (m), linear between rows: bank and crowns as slopes (tan; the
+  # record's bank is its angle), the crown line's offset left of the centreline (m) and the
+  # right side's lip (m, its face `lip_angle_right` deg). Everything else road_record's defaults
+  # but the ditch, which this course has none of (the terrain is cut to the road).
+  lip_angle_right: 90.0
+  section:
+    columns: [s, bank, crown_left, crown_right, crown_offset, lip_h_right]
+    rows:
+      - [0.0,   0.0,  0.025, 0.025, 0.0, 0.0]
+      - [150.0, 0.0,  0.025, 0.025, 0.0, 0.0]
+      - [210.0, 0.06, 0.0,   0.0,   0.0, 0.0]
+      - [300.0, 0.06, 0.0,   0.0,   0.0, 0.0]
+      - [360.0, 0.0,  0.020, 0.030, 0.5, 0.0]
+      - [418.0, 0.0,  0.020, 0.030, 0.5, 0.0]
+      - [420.0, 0.0,  0.020, 0.030, 0.5, 0.10]
+      - [480.0, 0.0,  0.020, 0.030, 0.5, 0.10]
+      - [482.0, 0.0,  0.020, 0.030, 0.5, 0.0]
+      - [510.0, 0.0,  0.020, 0.030, 0.5, 0.0]

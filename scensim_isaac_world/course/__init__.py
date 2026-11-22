@@ -13,4 +13,13 @@ The `record` step (scensim roadmap 086 C3, after `geometry`) writes the course's
 `course/road_detail.yaml` and `course/section.npz` (`record`): the section per station and
 what lies past each edge, which the guardrails are placed from. On its own
 (`... <map dir> record`) it reads the earlier steps' files and fetches nothing.
+
+A fixture course (086 C5b, `courses/fixture_c5.yaml`) has a `fixture:` block in place of the
+road's data: its plan, grade and section table (`fixture`). Nothing is fetched; its record is
+the table, and its road mesh carries the record's crown, bank and lip. `check` compares a
+course's road mesh (and with `--layer` the road layer's tiles) with its record, and
+`isaac_check`, under Isaac's Python, Isaac's road by PhysX's scene queries:
+
+    python3 -m scensim_isaac_world.course.check <map dir> [--layer]
+    python -m scensim_isaac_world.course.isaac_check <map dir>    # Isaac's Python
 """
