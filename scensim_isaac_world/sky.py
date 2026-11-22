@@ -72,6 +72,29 @@ def toward_sun(azimuth, elevation):
             math.sin(elevation))
 
 
+def from_direction(x, y, z):
+    """`toward_sun` backwards: (azimuth clockwise from north, elevation), rad."""
+    n = math.sqrt(x * x + y * y + z * z) or 1.0
+    return math.atan2(x, y) % (2 * math.pi), math.asin(max(-1.0, min(1.0, z / n)))
+
+
+def read_back(sky, setting, sun_direction):
+    """What Isaac shows of the parts `sky` has set (092 K9, `ENVIRONMENT_APPLIED`), read back
+    from the renderer: `setting(path)` reads a carb setting, `sun_direction` is the sun light's
+    direction toward the sun (map frame) or None. As `set_environment`'s weather dict. Clouds
+    and wind are left out: Isaac has no state of them to read but the sky's own numbers."""
+    out = {}
+    if sky.fog_visual_range is not None:
+        out["fog_visual_range"] = (float(setting(f"{FOG}/fogEndDist"))
+                                   if setting(f"{FOG}/enabled") else FOG_NONE)
+    if sky.rain_rate is not None:
+        r = float(setting(RAIN_RATE) or 0.0)
+        out["precipitation"] = ("rain", r) if r > 0 else ("dry", 0.0)
+    if (sky.sun is not None or sky.time is not None) and sun_direction is not None:
+        out["sun"] = (*from_direction(*sun_direction), 0.0)
+    return out
+
+
 @dataclass(frozen=True)
 class Sky:
     """The scenario's weather parts so far, and its time of day."""

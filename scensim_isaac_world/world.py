@@ -123,7 +123,8 @@ class IsaacWorld(WorldBase):
     """The world protocol's `World` on Isaac Sim (roadmap 046: `scensim_world_server`)."""
 
     simulator_name = "isaac"
-    capabilities = ("SIGNALS", "TRACKED_MOTION", "CONTACTS", "ROAD_CONDITION", "ENVIRONMENT")
+    capabilities = ("SIGNALS", "TRACKED_MOTION", "CONTACTS", "ROAD_CONDITION", "ENVIRONMENT",
+                    "ENVIRONMENT_APPLIED")
     # The bridge splits SSv2's step into PhysX steps of at most this (the world server's
     # --physics-hz; Isaac's default 60 Hz).
     max_physics_dt = 1 / 60
@@ -553,6 +554,20 @@ class IsaacWorld(WorldBase):
                  None if lights is None else
                  f"sun x{lights[1]:.2f} toward {tuple(round(c, 2) for c in lights[0] or ())}, "
                  f"dome x{lights[2]:.2f}", self.sky.fog_visual_range, self.sky.rain_rate)
+
+    def applied_environment(self):
+        """`ENVIRONMENT_APPLIED` (092 K9): the fog, rain and sun the renderer holds now, read
+        from its settings and the sun light (`sky.read_back`)."""
+        import carb
+
+        settings = carb.settings.get_settings()
+        direction = None
+        prim = self.stage.GetPrimAtPath(SUN) if self.light_backup is not None else None
+        if prim:
+            m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(0)
+            d = m.TransformDir(Gf.Vec3d(0, 0, 1))
+            direction = (d[0], d[1], d[2])
+        return scenario_sky.read_back(self.sky, settings.get, direction)
 
     def _apply_sky(self, now):
         import carb

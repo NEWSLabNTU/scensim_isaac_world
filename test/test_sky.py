@@ -97,5 +97,26 @@ class SkyTest(unittest.TestCase):
         self.assertTrue(f["/rtx/fog/enabled"])
 
 
+class ReadBack(unittest.TestCase):
+    """092 K9: what the renderer shows of the parts the scenario set, in its own units."""
+
+    def test_fog_rain_and_sun_read_back(self):
+        from scensim_isaac_world import sky as S
+        sky = Sky().with_({"fog_visual_range": 60.0, "precipitation": ("rain", 4.0),
+                           "sun": (1.0, 0.3, 0.0)})
+        held = dict(sky.fog_settings(), **{S.RAIN_RATE: 4.0})
+        got = S.read_back(sky, held.get, S.toward_sun(1.0, 0.3))
+        self.assertEqual(got["fog_visual_range"], 60.0)
+        self.assertEqual(got["precipitation"], ("rain", 4.0))
+        self.assertAlmostEqual(got["sun"][0], 1.0)
+        self.assertAlmostEqual(got["sun"][1], 0.3)
+        # fog thinned past FOG_NONE is off in the renderer: reads back as none (1000 m)
+        thin = Sky().with_({"fog_visual_range": 5000.0})
+        off = {f"{S.FOG}/enabled": False}
+        self.assertEqual(S.read_back(thin, off.get, None), {"fog_visual_range": S.FOG_NONE})
+        # only what was set
+        self.assertEqual(S.read_back(Sky(), held.get, (0, 0, 1)), {})
+
+
 if __name__ == "__main__":
     unittest.main()
