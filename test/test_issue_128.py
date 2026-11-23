@@ -69,15 +69,21 @@ class Exact(unittest.TestCase):
 
 
 class Cost(unittest.TestCase):
-    def test_a_tile_of_a_long_record_is_fast(self):
-        """Haruna's tile (321 x 321 points, 3054 segments) took 7.0 s before the fix."""
+    def test_a_tile_of_a_long_record_costs_a_fraction_of_the_full_loop(self):
+        """Haruna's tile took 7.0 s before the fix. Issue 132: a wall-clock bar failed on a loaded
+        gate host (1.19 s against 1.0 s at load 85 on 24 CPUs), so the bar is the culled call's
+        CPU time against the full loop's on the same tile: load slows both alike."""
         c = winding(3055)
         k = 1500
         i, j = int(c.centreline[k, 0] // 16), int(c.centreline[k, 1] // 16)
-        x, y = grid(c, i, j, n=320)
-        t = time.perf_counter()
+        x, y = grid(c, i, j, n=80)
+        t = time.process_time()
         c.uv(x, y)
-        self.assertLess(time.perf_counter() - t, 1.0)
+        culled = time.process_time() - t
+        t = time.process_time()
+        full(c, x, y)
+        whole = time.process_time() - t
+        self.assertLess(culled, 0.25 * whole)  # about 0.04 measured: 106 of 3054 segments
 
 
 if __name__ == "__main__":
