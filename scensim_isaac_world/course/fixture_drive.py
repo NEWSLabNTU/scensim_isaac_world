@@ -90,6 +90,8 @@ def main():
     ap.add_argument("--query", choices=("raycast", "sweep"), default="raycast")
     ap.add_argument("--cases", default="", help="comma separated (default: all)")
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
+    ap.add_argument("--rocks", default="", help="shoulder,runoff,ditch rock cover put on every "
+                    "corridor, the carriageway's 0 (086 C6b; default: the course's own)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     cases = a.cases.split(",") if a.cases else CASES
@@ -159,15 +161,60 @@ def main():
 
     smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
     layer = SurfaceLayer(stage, smap, apply_force=apply_force)
-    corridors = road_layer.load(os.path.join(a.map, "course", road_layer.FILE),
-                                classes=set(smap.table.classes))
+    road_file = os.path.join(a.map, "course", road_layer.FILE)
+    corridors = road_layer.load(road_file, classes=set(smap.table.classes))
+    if a.rocks:
+        from scensim_isaac_world import rocks as rk
+
+        sh, ro, di = (float(x) for x in a.rocks.split(","))
+        corridors = [dataclasses.replace(c, rocks=rk.Zones(carriageway=0.0, shoulder=sh,
+                                                           runoff=ro, ditch=di))
+                     for c in corridors]
+    # as world.py's _load_road: the record's strips as zones, the layer, and with rocks their
+    # stream and the detail's collision tiles (the ground the chassis and the plate meet)
+    layer.add_record_zones(road_layer.strip_zones(corridors))
     layer.road = road_layer.RoadLayer(corridors, (0.0, 0.0, 0.0), apply_force)
+    if layer.road.rocks is not None:
+        import yaml
+
+        from scensim_isaac_world import rock_layer
+
+        with open(os.path.join(a.map, "isaac", "world.yaml")) as f:
+            ground = list(yaml.safe_load(f).get("ground_paths") or [])
+        layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
+            stage, layer.road, physx, ground=road_layer.load_ground(road_file) or ground)
+        world.step(render=False)  # the rock pool in before the ego (issue 039)
 
     (x0, y0), h0 = xy_at(10.0, LANE)
     pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
     veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
-                  rig.box_dims, pose, truth_settings=rig.component.get("truth"))
+                  rig.box_dims, pose, ground_clearance=rig.ground_clearance,
+                  truth_settings=rig.component.get("truth"))
+    if layer.road_rocks is not None:
+        layer.road_rocks.reserve(1)
     state = State()
+    # the skid plate's bottom (aib's: between the axles, clear of the wheels), sampled 5 x 3
+    from aib.frames import qrot
+
+    r_w = params.wheel_radius
+    px = np.linspace(r_w, params.wheel_base - r_w, 5)
+    py = np.linspace(-1, 1, 3) * (params.wheel_tread - params.wheel_width - 0.1) / 2
+    plate = [(x, y, rig.ground_clearance) for x in px for y in py]
+
+    def road_z(x, y):
+        """The true surface at world (x, y): the base road (the section in it) and the
+        detail."""
+        u, v = uv(x, y)
+        u0 = u - s0
+        return float(corridor.base_z(u0) + corridor.section.height_uv(u0, v)
+                     + layer.road.height(np.array([x]), np.array([y]))[0])
+
+    def plate_clearance():
+        if rig.ground_clearance <= 0:
+            return ""
+        P, q = state.position, state.quat
+        return round(min(P[2] + qrot(q, p)[2] - road_z(P[0] + qrot(q, p)[0],
+                                                       P[1] + qrot(q, p)[1]) for p in plate), 4)
 
     def physx_step(cmd):
         veh.apply(cmd, dt, state)
@@ -180,12 +227,18 @@ def main():
     def frame(cmd):
         for _ in range(SUB):
             physx_step(cmd)
+        layer.flush()
 
     # fl_s: the front-left hub's s (the reference's x); fl_z: its attachment's height (the
     # corner's body, the reference's zs)
     header = ["case", "t", "step", "s", "v", "speed", "z", "pitch", "az", "fl_s", "fl_z"]
     header += [f"load{i}" for i in range(4)] + [f"air{i}" for i in range(4)]
-    rows, report = [], {"query": a.query, "physics_hz": round(1.0 / dt, 3),
+    # C6b: PhysX's jounce per wheel (its rigid limit: px_travel), the car's longitudinal
+    # acceleration (a plate strike's spike), the plate's lowest clearance over the true surface
+    header += [f"jounce{i}" for i in range(4)] + ["ax", "plate"]
+    rows, report = [], {"rocks": a.rocks, "ground_clearance": rig.ground_clearance,
+                        "px_travel": params.travels()[0], "query": a.query,
+                        "physics_hz": round(1.0 / dt, 3),
                         "physx_substeps": params.physx_substeps, "frame_s": FRAME,
                         "aib": os.environ.get("AIB_COMMIT", ""), "cases": []}
     idle = Command(received=True, gear=GEAR_DRIVE)
@@ -250,7 +303,10 @@ def main():
                     rows.append([case, round(t, 5), n, round(s_now, 4), round(v_now, 4),
                                  round(state.velocity[0], 4), round(float(P[2]), 5),
                                  round(pitch, 6), round(state.acceleration[2], 4), fl_s, fl_z,
-                                 *loads, *air])
+                                 *loads, *air,
+                                 *[round(float(j), 4) for j in (veh.jounce or [""] * 4)],
+                                 round(state.acceleration[0], 4), plate_clearance()])
+                layer.flush()
                 if not checked and s_now >= fs - CHECK_AT:
                     checked = True
                     info.update(start_t=round(t, 4), start_speed=round(state.velocity[0], 4),

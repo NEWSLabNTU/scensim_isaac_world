@@ -392,6 +392,9 @@ class Zones:
     carriageway: float = 0.002
     shoulder: float = 0.01
     ditch: float = 0.03
+    # 086 C6b: the record's run-off strip past the shoulder (`runoff_len`; none on a section
+    # without a record, where the ditch starts at the shoulder's end)
+    runoff: float = 0.01
     embed: tuple = (0.0, 0.4)  # the share of a rock's height below the surface, uniform
     # the carriageway is graded (assumed): a rock held in it stands at most this proud, m,
     # sunk deeper where it would stand more; and a rock lying on it is at most
@@ -402,18 +405,38 @@ class Zones:
     # rock only where the detail is at most this under the base; None: anywhere
     loose_below: float = None
 
-    def zone(self, section, v):
-        """The zone at distance v from the centreline: carriageway, shoulder, ditch, or None
-        beyond the section."""
+    def zone(self, section, v, u=None, stations=None):
+        """The zone at distance v from the centreline (at u along it, for a record's section):
+        carriageway, shoulder, runoff, ditch, or None beyond the section. With a record
+        (`stations`, a road_record.Stations; 086 C6b) the strips are its own at u, each side's:
+        the carriageway to half_width, the shoulder, `runoff_len` m of run-off, then the ditch
+        to the section's extent."""
         a = abs(float(v))
+        if stations is not None and u is not None:
+            side = 0 if v >= 0 else 1
+            st = stations
+
+            def at(arr):
+                return float(np.interp(u, st.u, arr))
+
+            w = at(st.common["half_width"])
+            sh = at(st.side["shoulder"][side])
+            ro = at(st.side["runoff_len"][side]) if "runoff_len" in st.side else 0.0
+            if a <= w:
+                return "carriageway"
+            if a <= w + sh:
+                return "shoulder"
+            if a <= w + sh + ro:
+                return "runoff"
+            return "ditch" if a <= section.extent() else None
         if a <= section.half_width:
             return "carriageway"
         if a <= section.half_width + section.shoulder:
             return "shoulder"
         return "ditch" if a <= section.extent() else None
 
-    def k(self, section, v):
-        z = self.zone(section, v)
+    def k(self, section, v, u=None, stations=None):
+        z = self.zone(section, v, u, stations)
         return getattr(self, z) if z else 0.0
 
 
@@ -468,7 +491,7 @@ def place(detail, i, j, zones=None):
         if cz is None:
             continue
         rng = c._rng(4, i, j)
-        for name in ("carriageway", "shoulder", "ditch"):
+        for name in ("carriageway", "shoulder", "runoff", "ditch"):
             k = getattr(cz, name)
             if k <= 0:
                 continue
@@ -477,7 +500,7 @@ def place(detail, i, j, zones=None):
                 u, v, near = c.uv(np.array([x]), np.array([y]))
                 if not 0.0 < u[0] < c.length:
                     continue  # beyond the corridor's ends
-                if not near[0] or cz.zone(c.section, v[0]) != name:
+                if not near[0] or cz.zone(c.section, v[0], u[0], c.stations) != name:
                     continue  # another zone's (each zone draws over the whole tile)
                 rock = scaled(int(rng.integers(PROTOTYPES)), 2 * d / (1 + AXES[1]))
                 yaw = float(rng.uniform(0.0, 2 * math.pi))
