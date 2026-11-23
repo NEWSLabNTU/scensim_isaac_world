@@ -28,7 +28,8 @@ from isaacsim.core.api import World  # noqa: E402
 from pxr import Gf, PhysicsSchemaTools, PhysxSchema, Sdf, UsdGeom, UsdPhysics  # noqa: E402
 
 world = World(stage_units_in_meters=1.0, physics_dt=1 / 60, rendering_dt=1 / 60)
-world.scene.add_default_ground_plane()
+from aib.isaac import ground  # noqa: E402
+ground.add_ground_plane(world.stage)  # local: no asset root (scensim issue 117)
 stage = omni.usd.get_context().get_stage()
 scene = None
 for prim in stage.Traverse():

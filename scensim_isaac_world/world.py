@@ -202,10 +202,13 @@ class IsaacWorld(WorldBase):
                             "scripts/dump_vehicle_physics.py): its geometry is not checked", model)
             check_ego(self.ego_rig, physics)
             log.info("ego vehicle: %s", self.ego_rig.vehicle)
-        self.world.scene.add_default_ground_plane(prim_path=GROUND_PLANE)
+        # The flat ground, built locally: Isaac's default plane came from NVIDIA's S3 bucket
+        # (scensim issue 117). Same path, collider and contact values; no light of its own.
+        from aib.isaac import ground
+        ground.add_ground_plane(self.stage, GROUND_PLANE)
         UsdGeom.Xform.Define(self.stage, ENTITIES)
-        # Light for cameras (a viewport, 038's watching; the lidar needs none): a loaded world
-        # replaces the default ground plane, and with it the only light.
+        # Light for cameras (a viewport, 038's watching; the lidar needs none): the flat ground
+        # brings none, and a loaded world may bring its own.
         sun = UsdLux.DistantLight.Define(self.stage, SUN)
         sun.CreateIntensityAttr(2500.0)
         sun.CreateAngleAttr(1.0)

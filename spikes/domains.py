@@ -29,7 +29,8 @@ enable_extension("isaacsim.ros2.bridge")
 app.update()
 
 world = World(stage_units_in_meters=1.0, physics_dt=1 / 60, rendering_dt=1 / 60)
-world.scene.add_default_ground_plane()
+from aib.isaac import ground  # noqa: E402
+ground.add_ground_plane(world.stage)  # local: no asset root (scensim issue 117)
 cubes = []
 for i, dom in enumerate(args.domains):
     path = f"/World/vehicle_{dom}"

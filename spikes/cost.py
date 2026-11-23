@@ -46,7 +46,8 @@ def gpu_mib():
 
 mem0 = gpu_mib()
 world = World(stage_units_in_meters=1.0, physics_dt=1 / 60, rendering_dt=1 / 60)
-world.scene.add_default_ground_plane()
+from aib.isaac import ground  # noqa: E402
+ground.add_ground_plane(world.stage)  # local: no asset root (scensim issue 117)
 rng = np.random.default_rng(0)
 for i in range(200):  # something for the sensors to see
     x, y = rng.uniform(-60, 60, 2)

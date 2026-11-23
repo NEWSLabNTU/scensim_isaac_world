@@ -68,7 +68,8 @@ from isaacsim.core.prims import XFormPrim  # noqa: E402
 from pxr import UsdPhysics  # noqa: E402
 
 world = World(stage_units_in_meters=1.0, physics_dt=1 / 60, rendering_dt=1 / 60)
-world.scene.add_default_ground_plane()
+from aib.isaac import ground  # noqa: E402
+ground.add_ground_plane(world.stage)  # local: no asset root (scensim issue 117)
 npcs = []
 for i in range(args.npcs):
     c = world.scene.add(FixedCuboid(prim_path=f"/World/npc_{i}", name=f"npc_{i}", position=[5.0, -10.0 + 1.5 * i, 0.75],

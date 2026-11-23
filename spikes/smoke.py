@@ -15,7 +15,8 @@ from isaacsim.core.api import World  # noqa: E402
 import omni.kit.app  # noqa: E402
 
 world = World(stage_units_in_meters=1.0, physics_dt=1 / 60, rendering_dt=1 / 60)
-world.scene.add_default_ground_plane()
+from aib.isaac import ground  # noqa: E402
+ground.add_ground_plane(world.stage)  # local: no asset root (scensim issue 117)
 world.reset()
 t1 = time.time()
 for _ in range(600):
