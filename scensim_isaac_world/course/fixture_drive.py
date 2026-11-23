@@ -30,7 +30,22 @@ from pathlib import Path
 import numpy as np
 
 FRAME = 0.05
-SUB = 3
+SUB = 3  # PhysX steps a frame at the default 60 Hz
+
+
+def rate(hz, vehicle_substeps):
+    """(PhysX steps a frame, aib's substeps a step) for a physics rate of `hz`, given aib's
+    substeps at 60 Hz: the frame stays FRAME s and the vehicle's own integration its 60 Hz
+    rate (aib's 8 substeps: 480 Hz), so only our contact's rate (once a PhysX step) and the
+    logging change (086 C6a2)."""
+    sub = round(hz * FRAME)
+    own = vehicle_substeps * 60
+    if hz <= 0 or abs(sub - hz * FRAME) > 1e-9 or own % hz:
+        raise SystemExit(f"--hz {hz}: a whole number of steps a {FRAME} s frame, "
+                         f"dividing the vehicle's {own} Hz")
+    return sub, own // hz
+
+
 LOOKAHEAD = 8.0
 LANE = 1.625  # m left of the centreline: the left lane's middle (driving on the left)
 CHECK_AT = 10.0
@@ -74,6 +89,7 @@ def main():
     ap.add_argument("--ego", default=str(Path(os.environ["AIB_SRC"]) / "config/ego.yaml"))
     ap.add_argument("--query", choices=("raycast", "sweep"), default="raycast")
     ap.add_argument("--cases", default="", help="comma separated (default: all)")
+    ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     cases = a.cases.split(",") if a.cases else CASES
@@ -110,6 +126,8 @@ def main():
     rig = EgoConfig.load(a.ego).load_rig()
     # as the world server makes an ego on a world with a road layer (`world.py`)
     params = dataclasses.replace(road_layer.vehicle_params(rig.vehicle), wheel_query=a.query)
+    SUB, substeps = rate(a.hz, params.physx_substeps)
+    params = dataclasses.replace(params, physx_substeps=substeps)
 
     from isaacsim import SimulationApp
 

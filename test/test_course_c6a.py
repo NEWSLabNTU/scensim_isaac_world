@@ -172,6 +172,14 @@ class Check(unittest.TestCase):
             if fs <= s <= fs + flen else 4500.0))])
         self.assertEqual(out["cases"][0]["verdict"], "passed", out["cases"][0])
 
+    def test_the_rate_keeps_the_frame_and_the_vehicles_own_rate(self):
+        self.assertEqual(fd.rate(60, 8), (3, 8))
+        self.assertEqual(fd.rate(120, 8), (6, 4))
+        self.assertEqual(fd.rate(240, 8), (12, 2))
+        for bad in (100, 960, 0):
+            with self.assertRaises(SystemExit):
+                fd.rate(bad, 8)
+
     def test_cases(self):
         self.assertEqual(len(fd.CASES), 12)
         self.assertEqual(fd.parse_case("cleat_10@20#3"), ("cleat_10", 20.0, 3))

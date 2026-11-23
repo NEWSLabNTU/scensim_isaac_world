@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD, SUB, quat_rpy)
+from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD, quat_rpy, rate)
 
 FRAMES = 400
 WARMUP_S = 6.0
@@ -39,6 +39,7 @@ def main():
     ap.add_argument("--ego", default=str(Path(os.environ["AIB_SRC"]) / "config/ego.yaml"))
     ap.add_argument("--query", choices=("raycast", "sweep"), default="raycast")
     ap.add_argument("--cars", type=int, default=1)
+    ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
@@ -56,6 +57,8 @@ def main():
 
     rig = EgoConfig.load(a.ego).load_rig()
     params = dataclasses.replace(road_layer.vehicle_params(rig.vehicle), wheel_query=a.query)
+    SUB, substeps = rate(a.hz, params.physx_substeps)
+    params = dataclasses.replace(params, physx_substeps=substeps)
 
     from isaacsim import SimulationApp
 
@@ -137,7 +140,8 @@ def main():
             if f >= total - FRAMES:
                 frame_ms.append((time.perf_counter() - t0) * 1e3)
                 contact_ms.append(sum(layer.road.cost_ms[n0:]))
-        out = {"query": a.query, "cars": a.cars, "frames": len(frame_ms),
+        out = {"query": a.query, "cars": a.cars, "physics_hz": a.hz,
+               "physx_substeps": params.physx_substeps, "frames": len(frame_ms),
                "aib": os.environ.get("AIB_COMMIT", ""),
                "frame_ms_p50": round(pct(frame_ms, 50), 3),
                "frame_ms_p95": round(pct(frame_ms, 95), 3),
