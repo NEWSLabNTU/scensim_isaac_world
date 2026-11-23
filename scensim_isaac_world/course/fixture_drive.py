@@ -150,6 +150,9 @@ def main():
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles without rocks (as before issue 119)")
+    ap.add_argument("--trace-push", action="store_true",
+                    help="issue 122: every rock push (reaction, limit, applied) and the case's "
+                    "rock's own contacts, to push.csv")
     ap.add_argument("--rocks-on-base", action="store_true",
                     help="issue 122's test: no collision tiles, the rocks on the base mesh")
     ap.add_argument("--fixtures", choices=("c6a", "c6b"), default="c6a",
@@ -285,6 +288,61 @@ def main():
     header += ["zu0", "rocks_loaded", "rock_prims", "rocks_awake", "rock_x", "rock_y", "rock_z",
                "rock_speed"]
 
+    # issue 122: each push on a rock as rocks.limit sees it, and the case's rock's contacts
+    push_rows, cur = [], {"case": "", "n": 0}
+    if a.trace_push and layer.road_rocks is not None:
+        from scensim_isaac_world import rock_layer
+
+        limit0 = rock_layer.rk.limit
+
+        def traced_limit(forces, mass, v_rock, v_push, dt_):
+            out, sc = limit0(forces, mass, v_rock, v_push, dt_)
+            fh = sum(f[:2] for f, _ in forces)
+            fz = sum(f[2] for f, _ in forces)
+            push_rows.append([cur["case"], cur["n"], "push", round(mass, 2),
+                              round(float(np.linalg.norm(fh)), 1), round(float(fz), 1),
+                              round(float(v_push), 4), round(float(sc), 4),
+                              round(float(np.linalg.norm(fh)) * sc, 1),
+                              round(float(np.linalg.norm(np.asarray(v_rock)[:2])), 4),
+                              "", "", ""])
+            return out, sc
+
+        rock_layer.rk.limit = traced_limit
+    reported = set()
+
+    def rock_contacts(found):
+        """The case's rock's contacts this step (PhysX's contact report on its prim): the
+        normal and tangential force summed over its contact points, N."""
+        if not a.trace_push or found is None or layer.road_rocks is None:
+            return
+        path = layer.road_rocks.paths[found] if found < len(layer.road_rocks.paths) else None
+        if not path:
+            return
+        if path not in reported:
+            from pxr import PhysxSchema
+
+            prim = stage.GetPrimAtPath(path)
+            if prim and prim.IsValid():
+                PhysxSchema.PhysxContactReportAPI.Apply(prim).CreateThresholdAttr(0.0)
+                reported.add(path)
+            return
+        headers, data = sim.get_contact_report()
+        fn = ft = 0.0
+        others = set()
+        for h in headers:
+            a0 = str(PhysicsSchemaTools.intToSdfPath(h.actor0))
+            a1 = str(PhysicsSchemaTools.intToSdfPath(h.actor1))
+            if path not in (a0, a1):
+                continue
+            others.add(a1 if a0 == path else a0)
+            for c in data[h.contact_data_offset:h.contact_data_offset + h.num_contact_data]:
+                imp, nrm = np.array(c.impulse), np.array(c.normal)
+                jn = float(np.dot(imp, nrm))
+                fn += abs(jn) / dt
+                ft += float(np.linalg.norm(imp - jn * nrm)) / dt
+        push_rows.append([cur["case"], cur["n"], "contact", "", "", "", "", "", "", "",
+                          round(fn, 1), round(ft, 1), ";".join(sorted(others))])
+
     def rock_state(fixture_xy, found):
         rs, stream = layer.road.rocks, layer.road_rocks
         if rs is None or stream is None:
@@ -366,6 +424,8 @@ def main():
                     car = layer.road.cars.get(veh.path)
                     o = car.last_out if car is not None else None
                     rock_cols, found = rock_state(fixture_xy, found)
+                    cur.update(case=case, n=n)
+                    rock_contacts(found)
                     P = state.position
                     s_now, v_now = uv(P[0], P[1])
                     _, pitch, _ = quat_rpy(*state.quat)
@@ -395,6 +455,12 @@ def main():
             report["cases"].append(info)
             print(f"fixture_drive: {json.dumps(info)}", flush=True)
     finally:
+        if push_rows:
+            with open(os.path.join(a.out, "push.csv"), "w", newline="") as f:
+                wr = csv.writer(f)
+                wr.writerow(["case", "step", "kind", "mass", "fh_in", "fz_in", "v_push", "scale",
+                             "fh_out", "v_rock", "contact_fn", "contact_ft", "contact_with"])
+                wr.writerows(push_rows)
         with open(os.path.join(a.out, "fixture.csv"), "w", newline="") as f:
             wr = csv.writer(f)
             wr.writerow(header)
