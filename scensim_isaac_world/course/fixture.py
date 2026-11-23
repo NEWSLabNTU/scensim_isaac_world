@@ -7,7 +7,9 @@ them, and becomes the record (`road_record.Stations`) at every centreline statio
 the spec, which the road mesh then carries (`geometry.road`'s `section`). The ground is flat
 across the road, `terrain_below` m under its centreline, cut to the road as a real course's is
 (`geometry.terrain`), and the photo plain grey. `strips:` gives a side's shoulder and run-off
-surface classes over a range of s (086 C5c: the surface layer's zones from the record).
+surface classes over a range of s (086 C5c: the surface layer's zones from the record). `photo:
+forest` and the course's `props:` give it guardrails (at the table's `barrier_offset_*`) and
+trees, as a real course has (086 C5d2: lateral features for NDT).
 """
 import math
 import os
@@ -19,6 +21,9 @@ from .centreline import STEP
 
 FINE = 0.01  # m: the plan's integration step
 GREY = (128, 128, 128)
+# `photo: forest` (086 C5d2): a colour the props step reads as forest, so trees stand beside the
+# road as on a real course (`props.trees`: green over red and blue, not bright)
+PHOTO = {"grey": GREY, "forest": (60, 100, 50)}
 # the section table's columns: (record field, side or None, slope as tan -> angle)
 COLUMNS = {
     "bank": ("bank", None, True),
@@ -31,6 +36,8 @@ COLUMNS = {
     "lip_angle_right": ("lip_angle", 1, False),
     "runoff_len_left": ("runoff_len", 0, False),
     "runoff_len_right": ("runoff_len", 1, False),
+    "barrier_offset_left": ("barrier_offset", 0, False),  # m from the centreline (086 C5d2)
+    "barrier_offset_right": ("barrier_offset", 1, False),
 }
 # a strip's surface classes, over a range of s on one side (`strips:`, 086 C5c)
 STRIP_TEXT = ("shoulder_surface", "runoff_surface")
@@ -147,11 +154,13 @@ class Dem:
         return float(self.c["z"][j]) - self.below + self.frame.alt0
 
 
-def photo(out, size=64):
-    """A plain grey photo (the terrain's texture)."""
+def photo(out, size=64, colour="grey"):
+    """A plain photo (the terrain's texture): grey, or `forest` (`PHOTO`)."""
     from PIL import Image
 
-    Image.new("RGB", (size, size), GREY).save(out, quality=90)
+    if colour not in PHOTO:
+        raise ValueError(f"fixture photo: {colour!r} ({', '.join(PHOTO)})")
+    Image.new("RGB", (size, size), PHOTO[colour]).save(out, quality=90)
     return out
 
 

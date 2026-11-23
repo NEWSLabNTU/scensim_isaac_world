@@ -1,0 +1,60 @@
+# Roadmap 086 C5d2's fixture course: C5b's (courses/fixture_c5.yaml) with guardrails and trees,
+# so NDT has lateral features as on a real course. Made up to test Isaac and Autoware, not a
+# place. C5b's header follows.
+#
+# Roadmap 086 C5b's fixture course: a road made up to test the record's section in Isaac, not a
+# place. Its centreline and section are the `fixture:` block's, not OSM's or a DEM's: a stated
+# crown, a bank rising from 0 to 6 % through a bend, an offset and asymmetric crown, and a lip.
+# Built by the course builder as any course is (`python3 -m scensim_isaac_world.course
+# courses/fixture_c5.yaml <map dir>`), the record's section carried by the road mesh.
+name: fixture_c5d2
+# A fixture's arbitrary datum, so the map frame and Autoware's projector work as for a real
+# course. It names no place: nothing here was measured there.
+origin: {lat: 36.0, lon: 140.0, alt: 0.0}
+road:
+  lanes: 2
+  lane_width: 3.25
+  shoulder: 0.75
+# Terrain: the section's box plus this margin, m
+margin: 40.0
+speed_limit_kmh: 40
+fixture:
+  grade: -0.03          # along the whole course, downhill as haruna_down
+  terrain_below: 0.30   # m: the flat ground across, below the road's centreline
+  photo: forest         # 086 C5d2: the props step's trees stand where the photo is forest
+  # the plan, in order from s = 0: straight (m), clothoid (m, to curvature 1/m, linear in s
+  # from the previous), arc (m, at the previous curvature)
+  plan:
+    - {straight: 150.0}
+    - {clothoid: 60.0, to: 0.0166666667}    # to R 60 m, left
+    - {arc: 90.0}                            # 86 deg
+    - {clothoid: 60.0, to: 0.0}
+    - {straight: 150.0}
+  # the section at these s (m), linear between rows: bank and crowns as slopes (tan; the
+  # record's bank is its angle), the crown line's offset left of the centreline (m) and the
+  # right side's lip (m, its face `lip_angle_right` deg). Everything else road_record's defaults
+  # but the ditch, which this course has none of (the terrain is cut to the road).
+  lip_angle_right: 90.0
+  section:
+    columns: [s, bank, crown_left, crown_right, crown_offset, lip_h_right, barrier_offset_left,
+              barrier_offset_right]
+    rows:
+      - [0.0,   0.0,  0.025, 0.025, 0.0, 0.0, 4.5,  4.5]
+      - [150.0, 0.0,  0.025, 0.025, 0.0, 0.0, 4.5,  4.5]
+      - [210.0, 0.06, 0.0,   0.0,   0.0, 0.0, 4.5,  4.5]
+      - [300.0, 0.06, 0.0,   0.0,   0.0, 0.0, 4.5,  4.5]
+      - [360.0, 0.0,  0.020, 0.030, 0.5, 0.0, 4.5,  4.5]
+      - [418.0, 0.0,  0.020, 0.030, 0.5, 0.0, 4.5,  4.5]
+      - [420.0, 0.0,  0.020, 0.030, 0.5, 0.10, 4.5,  4.5]
+      - [480.0, 0.0,  0.020, 0.030, 0.5, 0.10, 4.5,  4.5]
+      - [482.0, 0.0,  0.020, 0.030, 0.5, 0.0, 4.5,  4.5]
+      - [510.0, 0.0,  0.020, 0.030, 0.5, 0.0, 4.5,  4.5]
+# 086 C5d2: the props step's guardrails (at the table's barrier_offset: 3.25 + 0.75 + 0.5 m) and
+# trees, from the CARLA 0.9.16 Isaac set ($CARLA_USD), as Haruna has them
+props:
+  guardrail: Town01/Props/SM_Guardrail_02.usd
+  trees: [Town01/Props/SM_TreePine_1.usd, Town01/Props/SM_TreePine_2.usd,
+          Town01/Props/SM_TreePine_3.usd, Town01/Props/SM_Beech.usd,
+          Town02/Props/SM_Japanese_Maple_01.usd]
+  tree_spacing: 7.0
+  tree_band: 90.0

@@ -130,7 +130,8 @@ def main_fixture(course, frame, map_dir, work, steps):
     c = fixture.centreline(course)
     if "centreline" in steps:
         print(json.dumps(fixture.write_centreline(work, c)))
-        fixture.photo(os.path.join(work, "photo.jpg"))
+        fixture.photo(os.path.join(work, "photo.jpg"),
+                      colour=course["fixture"].get("photo", "grey"))
     st = fixture.stations(course, c)
     if "geometry" in steps:
         dem = fixture.Dem(course, c, frame)
