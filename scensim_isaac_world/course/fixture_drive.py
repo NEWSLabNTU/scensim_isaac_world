@@ -162,6 +162,9 @@ def main():
     ap.add_argument("--trace-push", action="store_true",
                     help="issue 122: every rock push (reaction, limit, applied) and the case's "
                     "rock's own contacts, to push.csv")
+    ap.add_argument("--server-order", action="store_true",
+                    help="issue 123: the simulation started before the world's USD and the road, "
+                    "as the world server loads a map")
     ap.add_argument("--groups-early", action="store_true",
                     help="issue 123: roadBase and the rocks' groups made before the simulation starts")
     ap.add_argument("--rock-pool", choices=("on", "off", "late"), default="on",
@@ -228,8 +231,13 @@ def main():
     dt = FRAME / SUB
     world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
     stage = omni.usd.get_context().get_stage()
-    add_reference_to_stage(usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
-                           prim_path="/World/env")
+    def add_world():
+        add_reference_to_stage(
+            usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
+            prim_path="/World/env")
+
+    if not a.server_order:
+        add_world()
     ensure_vehicle_scene(stage)
     if a.groups_early:
         # issue 123's test (iv): the world's ground in roadBase and the rocks' groups filtering
@@ -250,6 +258,8 @@ def main():
             grp.GetCollidersCollectionAPI().CreateIncludesRel()
     world.reset()
     world.play()
+    if a.server_order:  # issue 123: as world.py, the simulation running before the map's USD
+        add_world()
     physx = omni.physx.get_physx_interface()
     sim = omni.physx.get_physx_simulation_interface()
 
