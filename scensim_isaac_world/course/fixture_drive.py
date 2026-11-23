@@ -325,6 +325,19 @@ def main():
             if prim and prim.IsValid():
                 PhysxSchema.PhysxContactReportAPI.Apply(prim).CreateThresholdAttr(0.0)
                 reported.add(path)
+                # issue 123: every collision group that holds the rock or the base road, and
+                # what each filters
+                from pxr import Sdf, UsdPhysics
+
+                for g in stage.Traverse():
+                    if not g.IsA(UsdPhysics.CollisionGroup):
+                        continue
+                    grp = UsdPhysics.CollisionGroup(g)
+                    q = grp.GetCollidersCollectionAPI().ComputeMembershipQuery()
+                    has = [x for x in (path, "/World/env/Road", "/World/env/Terrain")
+                           if q.IsPathIncluded(Sdf.Path(x))]
+                    filt = [str(t) for t in grp.GetFilteredGroupsRel().GetTargets()]
+                    print(f"groups: {g.GetPath()} holds {has} filters {filt}", flush=True)
             return
         headers, data = sim.get_contact_report()
         fn = ft = 0.0
