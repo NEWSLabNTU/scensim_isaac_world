@@ -22,4 +22,11 @@ course's road mesh (and with `--layer` the road layer's tiles) with its record, 
 
     python3 -m scensim_isaac_world.course.check <map dir> [--layer]
     python -m scensim_isaac_world.course.isaac_check <map dir>    # Isaac's Python
+
+The lip course (086 C5c, `courses/fixture_c5c.yaml`) is a fixture too, its `cases:` each
+segment's expected outcome on a re-entry over its lip; `lip_drive` drives aib's car over them
+(Isaac's Python) and `lip_check` classifies each against the control:
+
+    python -m scensim_isaac_world.course.lip_drive --map <map dir> --course <course.yaml> --out <dir>
+    python3 -m scensim_isaac_world.course.lip_check <dir> <map dir>
 """
