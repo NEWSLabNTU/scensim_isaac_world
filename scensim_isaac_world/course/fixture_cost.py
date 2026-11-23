@@ -6,10 +6,12 @@ The cars start 20 m apart, alternately in the left and the right lane (all drivi
 s = 40 m, and hold 10 m/s over the cleats and the pothole (the same pursuit and speed hold as
 `fixture_drive`); FRAMES frames are timed once every car is at speed. `--follow` drives along
 the course's centreline (`Line`) instead of the straight line from its first point to its last:
-a winding course (086 C6b's budget on Haruna). Writes `cost.json`:
+a winding course (086 C6b's budget on Haruna). `--guard-ms` (issue 128): exit 1 when a frame of
+the first GUARD_FRAMES (the first tiles around the cars) takes longer, or a rock touches the
+base road (issue 123's self-check). Writes `cost.json`:
 
     python -m scensim_isaac_world.course.fixture_cost --map <map dir> --out <dir>
-        [--query raycast|sweep] [--cars 1|2|4] [--follow] [--road <road_detail.yaml>]
+        [--query raycast|sweep] [--cars 1|2|4] [--follow] [--road <road_detail.yaml>] [--guard-ms N]
 """
 import argparse
 import dataclasses
@@ -26,6 +28,7 @@ from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD,
                                                       rate)
 
 FRAMES = 400
+GUARD_FRAMES = 120  # issue 128: the frames from the load, the first tiles around the cars
 WARMUP_S = 6.0
 SPEED = 10.0
 GAP = 20.0
@@ -94,6 +97,9 @@ def main():
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles (as before issue 119)")
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
+    ap.add_argument("--guard-ms", type=float,
+                    help="issue 128's guard: exit 1 if a frame of the first GUARD_FRAMES takes "
+                    "longer, or a rock touches the base road")
     ap.add_argument("--road", help="the road record to load (a map's own "
                     "<map dir>/road_detail.yaml); default: the course's course/road_detail.yaml")
     ap.add_argument("--follow", action="store_true",
@@ -163,7 +169,7 @@ def main():
             cars.append({"veh": veh, "state": State(), "lane": lane, "i": 0.0,
                          "cmd": Command(received=True, gear=GEAR_DRIVE)})
 
-        t, frame_ms, contact_ms, flush_ms, tiles = 0.0, [], [], [], []
+        t, frame_ms, contact_ms, flush_ms, tiles, first_ms = 0.0, [], [], [], [], []
         total = int(WARMUP_S / FRAME) + FRAMES
         for f in range(total):
             for c in cars:
@@ -190,6 +196,8 @@ def main():
                     c["veh"].apply(c["cmd"], dt, c["state"])
                 layer.place([c["veh"] for c in cars], dt)
                 world.step(render=False)
+                if layer.road_rocks is not None:  # issue 123's self-check
+                    layer.road_rocks.check_base(sim.get_contact_report()[0], dt)
                 layer.begin_step()
                 for c in cars:
                     c["veh"].sample(physx, dt, c["state"])
@@ -197,6 +205,8 @@ def main():
             t1 = time.perf_counter()
             layer.flush()  # the world server's frame end: the tiles (issue 119), the rocks
             t += FRAME
+            if f < GUARD_FRAMES:
+                first_ms.append((time.perf_counter() - t0) * 1e3)
             if f >= total - FRAMES:
                 frame_ms.append((time.perf_counter() - t0) * 1e3)
                 contact_ms.append(sum(layer.road.cost_ms[n0:]))
@@ -215,9 +225,21 @@ def main():
                "tiles_mean": round(float(np.mean(tiles)), 1),
                "speeds": [round(c["state"].velocity[0], 2) for c in cars],
                "follow": a.follow, "road": a.road or "",
-               "s_end": [round(line.s_of(c["state"].position[:2]), 1) for c in cars]}
+               "s_end": [round(line.s_of(c["state"].position[:2]), 1) for c in cars],
+               "first_frames_ms_max": round(max(first_ms), 1),
+               "base_contacts": len(layer.road_rocks.base_hits) if layer.road_rocks else 0}
         print(f"fixture_cost: {json.dumps(out)}", flush=True)
         json.dump(out, open(os.path.join(a.out, "cost.json"), "w"), indent=1)
+        if a.guard_ms is not None:  # issue 128's guard
+            bad = []
+            if out["first_frames_ms_max"] > a.guard_ms:
+                bad.append(f"a frame of the first {GUARD_FRAMES} took "
+                           f"{out['first_frames_ms_max']} ms (> {a.guard_ms})")
+            if out["base_contacts"]:
+                bad.append(f"{out['base_contacts']} rock(s) on the base road (issue 123)")
+            print(f"fixture_cost guard: {'; '.join(bad) or 'ok'}", flush=True)
+            if bad:
+                code = 1
     except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
         code = app_exit.code_of(e)
     finally:
