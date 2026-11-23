@@ -364,7 +364,7 @@ class Corridor:
         best_d = np.full(len(p), np.inf)
         u = np.zeros(len(p))
         v = np.zeros(len(p))
-        for s in range(len(a)):  # segments: few near any tile
+        for s in self._candidates(p):  # in order, so ties resolve as over every segment
             rel = p - a[s]
             t = np.clip(rel @ self.seg_dir[s], 0.0, self.seg_len[s])
             foot = a[s] + t[:, None] * self.seg_dir[s]
@@ -375,6 +375,28 @@ class Corridor:
             cross = self.seg_dir[s, 0] * rel[:, 1] - self.seg_dir[s, 1] * rel[:, 0]
             v = np.where(better, cross, v)
         return u, v, best_d <= self.reach
+
+    def _candidates(self, p):
+        """The segments that can be nearest to some point of `p` (issue 128): D, the least over
+        the segments of the farthest corner of p's bounding box from the segment, bounds every
+        point's nearest distance, so a segment whose bounding box lies farther than D from p's
+        cannot be nearest to any. Exact; a 3000-station record's tile keeps a few dozen."""
+        if not len(p) or len(self.seg_len) < 64:
+            return range(len(self.seg_len))
+        a, b = self.centreline[:-1, :2], self.centreline[1:, :2]
+        lo, hi = p.min(axis=0), p.max(axis=0)
+        corners = np.array([[lo[0], lo[1]], [lo[0], hi[1]], [hi[0], lo[1]], [hi[0], hi[1]]])
+        far = np.zeros(len(a))
+        for c in corners:
+            rel = c - a
+            t = np.clip(np.einsum("ij,ij->i", rel, self.seg_dir), 0.0, self.seg_len)
+            foot = a + t[:, None] * self.seg_dir
+            far = np.maximum(far, np.hypot(*(c - foot).T))
+        bound = float(far.min()) + 1e-6
+        smin, smax = np.minimum(a, b), np.maximum(a, b)
+        gap = np.hypot(np.maximum(0.0, np.maximum(smin[:, 0] - hi[0], lo[0] - smax[:, 0])),
+                       np.maximum(0.0, np.maximum(smin[:, 1] - hi[1], lo[1] - smax[:, 1])))
+        return np.nonzero(gap <= bound)[0]
 
     def weight(self, u):
         """The share of this corridor's detail at u along it: 1, or falling linearly to 0 over
