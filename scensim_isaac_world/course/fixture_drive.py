@@ -328,20 +328,23 @@ def main():
             return
         headers, data = sim.get_contact_report()
         fn = ft = 0.0
-        others = set()
+        per = {}  # the other collider -> its normal force, N
         for h in headers:
             a0 = str(PhysicsSchemaTools.intToSdfPath(h.actor0))
             a1 = str(PhysicsSchemaTools.intToSdfPath(h.actor1))
             if path not in (a0, a1):
                 continue
-            others.add(a1 if a0 == path else a0)
+            other = str(PhysicsSchemaTools.intToSdfPath(h.collider1 if a0 == path
+                                                         else h.collider0))
             for c in data[h.contact_data_offset:h.contact_data_offset + h.num_contact_data]:
                 imp, nrm = np.array(c.impulse), np.array(c.normal)
                 jn = float(np.dot(imp, nrm))
                 fn += abs(jn) / dt
                 ft += float(np.linalg.norm(imp - jn * nrm)) / dt
+                per[other] = per.get(other, 0.0) + abs(jn) / dt
         push_rows.append([cur["case"], cur["n"], "contact", "", "", "", "", "", "", "",
-                          round(fn, 1), round(ft, 1), ";".join(sorted(others))])
+                          round(fn, 1), round(ft, 1),
+                          ";".join(f"{k}={v:.0f}" for k, v in sorted(per.items()))])
 
     def rock_state(fixture_xy, found):
         rs, stream = layer.road.rocks, layer.road_rocks
