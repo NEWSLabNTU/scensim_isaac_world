@@ -69,6 +69,39 @@ def runup(speed):
     return 60.0 if speed <= 10.0 else 95.0
 
 
+def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
+              colliders=True):
+    """The course's road on `layer` as world.py's _load_road loads a map's: the record's strips
+    as zones, the road layer, the detail's collision tiles (issue 119; `colliders` False: none,
+    as before it), and with rocks their stream on those tiles, then one physics step (issue
+    039). `rocks`: "shoulder,runoff,ditch" cover put on every corridor, the carriageway's 0
+    (086 C6b; empty: the course's own)."""
+    from scensim_isaac_world import road_layer, rock_layer
+
+    road_file = os.path.join(map_dir, "course", road_layer.FILE)
+    corridors = road_layer.load(road_file, classes=classes)
+    if rocks:
+        from scensim_isaac_world import rocks as rk
+
+        sh, ro, di = (float(x) for x in rocks.split(","))
+        corridors = [dataclasses.replace(c, rocks=rk.Zones(carriageway=0.0, shoulder=sh,
+                                                           runoff=ro, ditch=di))
+                     for c in corridors]
+    layer.add_record_zones(road_layer.strip_zones(corridors))
+    layer.road = road_layer.RoadLayer(corridors, (0.0, 0.0, 0.0), apply_force)
+    if colliders or layer.road.rocks is not None:
+        layer.road_colliders = rock_layer.DetailColliders(stage, layer.road)
+    if layer.road.rocks is not None:
+        import yaml
+
+        with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
+            ground = list(yaml.safe_load(f).get("ground_paths") or [])
+        layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
+            stage, layer.road, physx, ground=road_layer.load_ground(road_file) or ground,
+            colliders=layer.road_colliders)
+    world.step(render=False)
+
+
 def parse_case(c):
     name, rest = c.split("@")
     speed, _, k = rest.partition("#")
@@ -90,6 +123,8 @@ def main():
     ap.add_argument("--query", choices=("raycast", "sweep"), default="raycast")
     ap.add_argument("--cases", default="", help="comma separated (default: all)")
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
+    ap.add_argument("--no-colliders", action="store_true",
+                    help="no detail collision tiles without rocks (as before issue 119)")
     ap.add_argument("--rocks", default="", help="shoulder,runoff,ditch rock cover put on every "
                     "corridor, the carriageway's 0 (086 C6b; default: the course's own)")
     a = ap.parse_args()
@@ -161,29 +196,8 @@ def main():
 
     smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
     layer = SurfaceLayer(stage, smap, apply_force=apply_force)
-    road_file = os.path.join(a.map, "course", road_layer.FILE)
-    corridors = road_layer.load(road_file, classes=set(smap.table.classes))
-    if a.rocks:
-        from scensim_isaac_world import rocks as rk
-
-        sh, ro, di = (float(x) for x in a.rocks.split(","))
-        corridors = [dataclasses.replace(c, rocks=rk.Zones(carriageway=0.0, shoulder=sh,
-                                                           runoff=ro, ditch=di))
-                     for c in corridors]
-    # as world.py's _load_road: the record's strips as zones, the layer, and with rocks their
-    # stream and the detail's collision tiles (the ground the chassis and the plate meet)
-    layer.add_record_zones(road_layer.strip_zones(corridors))
-    layer.road = road_layer.RoadLayer(corridors, (0.0, 0.0, 0.0), apply_force)
-    if layer.road.rocks is not None:
-        import yaml
-
-        from scensim_isaac_world import rock_layer
-
-        with open(os.path.join(a.map, "isaac", "world.yaml")) as f:
-            ground = list(yaml.safe_load(f).get("ground_paths") or [])
-        layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
-            stage, layer.road, physx, ground=road_layer.load_ground(road_file) or ground)
-        world.step(render=False)  # the rock pool in before the ego (issue 039)
+    load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
+              rocks=a.rocks, colliders=not a.no_colliders)
 
     (x0, y0), h0 = xy_at(10.0, LANE)
     pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
@@ -236,7 +250,8 @@ def main():
     # C6b: PhysX's jounce per wheel (its rigid limit: px_travel), the car's longitudinal
     # acceleration (a plate strike's spike), the plate's lowest clearance over the true surface
     header += [f"jounce{i}" for i in range(4)] + ["ax", "plate"]
-    rows, report = [], {"rocks": a.rocks, "ground_clearance": rig.ground_clearance,
+    rows, report = [], {"rocks": a.rocks, "colliders": layer.road_colliders is not None,
+                        "ground_clearance": rig.ground_clearance,
                         "px_travel": params.travels()[0], "query": a.query,
                         "physics_hz": round(1.0 / dt, 3),
                         "physx_substeps": params.physx_substeps, "frame_s": FRAME,

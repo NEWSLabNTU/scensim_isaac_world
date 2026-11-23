@@ -19,7 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD, quat_rpy, rate)
+from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD, load_road,
+                                                      quat_rpy, rate)
 
 FRAMES = 400
 WARMUP_S = 6.0
@@ -39,6 +40,8 @@ def main():
     ap.add_argument("--ego", default=str(Path(os.environ["AIB_SRC"]) / "config/ego.yaml"))
     ap.add_argument("--query", choices=("raycast", "sweep"), default="raycast")
     ap.add_argument("--cars", type=int, default=1)
+    ap.add_argument("--no-colliders", action="store_true",
+                    help="no detail collision tiles (as before issue 119)")
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -90,9 +93,8 @@ def main():
 
     smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
     layer = SurfaceLayer(stage, smap, apply_force=apply_force)
-    layer.road = road_layer.RoadLayer(
-        road_layer.load(os.path.join(a.map, "course", road_layer.FILE),
-                        classes=set(smap.table.classes)), (0.0, 0.0, 0.0), apply_force)
+    load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
+              colliders=not a.no_colliders)
     cars = []
     for k in range(a.cars):
         lane = LANE if k % 2 == 0 else -LANE
@@ -100,11 +102,12 @@ def main():
         p = xy(s0, lane)
         pose = ((float(p[0]), float(p[1]), 0.6), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
         veh = Vehicle(stage, f"/World/car{k}", params, rig.make_component(), rig.box_center,
-                      rig.box_dims, pose, truth_settings=rig.component.get("truth"))
+                      rig.box_dims, pose, ground_clearance=rig.ground_clearance,
+                      truth_settings=rig.component.get("truth"))
         cars.append({"veh": veh, "state": State(), "lane": lane, "i": 0.0,
                      "cmd": Command(received=True, gear=GEAR_DRIVE)})
 
-    t, frame_ms, contact_ms = 0.0, [], []
+    t, frame_ms, contact_ms, flush_ms, tiles = 0.0, [], [], [], []
     total = int(WARMUP_S / FRAME) + FRAMES
     try:
         for f in range(total):
@@ -136,10 +139,14 @@ def main():
                 for c in cars:
                     c["veh"].sample(physx, dt, c["state"])
                     layer.update(c["veh"], c["state"].velocity[0], dt)
+            t1 = time.perf_counter()
+            layer.flush()  # the world server's frame end: the tiles (issue 119), the rocks
             t += FRAME
             if f >= total - FRAMES:
                 frame_ms.append((time.perf_counter() - t0) * 1e3)
                 contact_ms.append(sum(layer.road.cost_ms[n0:]))
+                flush_ms.append((time.perf_counter() - t1) * 1e3)
+                tiles.append(len(layer.road_colliders.coll) if layer.road_colliders else 0)
         out = {"query": a.query, "cars": a.cars, "physics_hz": a.hz,
                "physx_substeps": params.physx_substeps, "frames": len(frame_ms),
                "aib": os.environ.get("AIB_COMMIT", ""),
@@ -147,6 +154,10 @@ def main():
                "frame_ms_p95": round(pct(frame_ms, 95), 3),
                "contact_ms_p50": round(pct(contact_ms, 50), 3),
                "contact_ms_p95": round(pct(contact_ms, 95), 3),
+               "colliders": layer.road_colliders is not None,
+               "flush_ms_p50": round(pct(flush_ms, 50), 3),
+               "flush_ms_p95": round(pct(flush_ms, 95), 3),
+               "tiles_mean": round(float(np.mean(tiles)), 1),
                "speeds": [round(c["state"].velocity[0], 2) for c in cars],
                "s_end": [round(float((np.array(c["state"].position[:2])
                                       - np.array([x0, y0])) @ d), 1) for c in cars]}
