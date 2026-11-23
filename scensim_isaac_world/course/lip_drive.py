@@ -125,157 +125,166 @@ def main():
     params = dataclasses.replace(rig.vehicle, wheel_query=a.query)
     tread, base, radius = params.wheel_tread, params.wheel_base, params.wheel_radius
 
+    from aib import app_exit
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True, "extra_args": ["--/crashreporter/url="]})
-    import omni.physx
-    import omni.usd
-    from isaacsim.core.api import World
-    from isaacsim.core.utils.stage import add_reference_to_stage
-
-    from aib.control import GEAR_DRIVE, Command, State
-    from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
-    from scensim_isaac_world.surface_layer import SurfaceLayer
-
-    dt = FRAME / SUB
-    world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
-    stage = omni.usd.get_context().get_stage()
-    add_reference_to_stage(usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
-                           prim_path="/World/env")
-    ensure_vehicle_scene(stage)
-    world.reset()
-    world.play()
-    physx = omni.physx.get_physx_interface()
-
-    # the wheels' ground, as the world server's surface layer gives it (no road layer: the
-    # course's record is in course/, the base road carries its section)
-    smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
-    layer = SurfaceLayer(stage, smap)
-    road = os.path.join(a.map, "course", road_layer.FILE)
-    zones = road_layer.strip_zones(road_layer.load(road, classes=set(smap.table.classes)))
-    layer.add_record_zones(zones)
-
-    first = plan(cases[0], half, tread, math.radians(a.angle))
-    (x0, y0), h0 = xy_at(first["s_start"], first["v0"])
-    pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
-    veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
-                  rig.box_dims, pose, truth_settings=rig.component.get("truth"))
-    state = State()
-
-    def substeps(cmd):
-        for _ in range(SUB):
-            veh.apply(cmd, dt, state)
-            world.step(render=False)
-            veh.sample(physx, dt, state)
-            layer.update(veh, state.velocity[0], dt)
-
-    header = ["case", "t", "frame", "s", "v", "x", "y", "z", "roll", "pitch", "yaw", "speed",
-              "yaw_rate", "ay", "fr_s", "fr_v", "fr_z", "rr_v", "steer"]
-    header += [f"w{i}_{k}" for i in range(4) for k in ("on", "cz", "cv", "cls", "zone")]
-    header += ["w1_shape", "w3_shape"]  # the colliders the right wheels stand on
-    rows, report = [], {"query": a.query, "speed": a.speed, "angle_deg": a.angle,
-                        "wheel_tread": tread, "wheel_base": base,
-                        "record_zones": [z.id for z in zones], "cases": []}
-    idle = Command(received=True, gear=GEAR_DRIVE)
+    code = 0
     try:
-        for case in cases:
-            p = plan(case, half, tread, math.radians(a.angle))
-            k = int(case["segment"])
-            (x, y), h = xy_at(p["s_start"], p["v0"])
-            z = float(np.interp(p["s_start"], s_cl, cl["z"])
-                      + sec.height_uv(np.array([p["s_start"] - s_cl[0]]),
-                                      np.array([p["v0"]]))[0]) + 0.05
-            pose = ((float(x), float(y), z), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
-            veh.teleport(pose, physx)
-            layer.reset(veh.path)
-            state = State()
-            for _ in range(SETTLE_FRAMES):
-                substeps(idle)
-            s_at, v_at = uv(*state.position[:2])
-            info = {"segment": k, "expect": case["expect"], "lip_h": case["lip_h"],
-                    "lip_angle": case["lip_angle"], **{n: round(float(q), 4)
-                                                       for n, q in p.items()},
-                    "settled_v_err": round(v_at - p["v0"], 4)}
-            ss = np.arange(p["s_start"] - 10.0, p["s_end"] + 20.0, 0.5)
-            line = xy_at(ss, path_v(ss, p["s_turn"], p["v0"], p["v1"], p["angle"]))[0]
-            cmd = Command(received=True, gear=GEAR_DRIVE)
-            t, frame, checked, err_sum = 0.0, 0, False, 0.0
-            while t < 60.0:
-                pos = np.array(state.position[:2])
-                s_now, v_now = uv(*pos)
-                if s_now >= p["s_end"]:
-                    break
-                j = int(np.argmin(np.hypot(*(line - pos).T)))
-                tgt = line[min(j + int(LOOKAHEAD / 0.5), len(line) - 1)]
-                yaw = quat_rpy(*state.quat)[2]
-                dx, dy = tgt - pos
-                alpha = math.atan2(dy, dx) - yaw
-                steer = math.atan2(2 * base * math.sin(alpha), math.hypot(dx, dy))
-                v = state.velocity[0]
-                cmd.tire_angle = max(-params.max_steer_angle, min(params.max_steer_angle, steer))
-                cmd.velocity = a.speed
-                # a speed hold with an integral, so it holds --speed, not a drag's offset below
-                # (only near it: no wind-up while it speeds up from rest)
-                if abs(a.speed - v) < 1.0:
-                    err_sum = max(-5.0, min(5.0, err_sum + (a.speed - v) * FRAME))
-                cmd.acceleration = max(-3.0, min(3.0, 1.5 * (a.speed - v) + 0.5 * err_sum))
-                substeps(cmd)
-                t += FRAME
-                frame += 1
-                q = state.quat
-                R = rot(*q)
-                r, pi, ya = quat_rpy(*q)
-                P = np.array(state.position)
-                fr = P + R @ np.array([base, -tread / 2, radius])
-                rr_ = P + R @ np.array([0.0, -tread / 2, radius])
-                fr_s, fr_v = uv(*fr[:2])
-                s_now, v_now = uv(*P[:2])
-                under = layer.surfaces_under(veh)
-                wheels = []
-                for i, c in enumerate(veh.contacts or []):
-                    srf = under[i] if i < len(under) else None
-                    cv = uv(*c.position[:2])[1] if c.on_ground else float("nan")
-                    wheels += [int(c.on_ground), round(float(c.position[2]), 4), round(cv, 4),
-                               getattr(srf, "cls", "") or "", getattr(srf, "zone", "") or ""]
-                rows.append([k, round(t, 4), frame, round(s_now, 4), round(v_now, 4),
-                             *(round(float(c), 4) for c in P), round(r, 5), round(pi, 5),
-                             round(ya, 5), round(v, 4), round(state.angular_velocity[2], 5),
-                             round(state.acceleration[1], 4), round(fr_s, 4), round(fr_v, 4),
-                             round(float(fr[2]), 4), round(uv(*rr_[:2])[1], 4),
-                             round(cmd.tire_angle, 5), *wheels,
-                             *(veh.contacts[i].shape if veh.contacts else "" for i in (1, 3))])
-                if not checked and s_now >= p["s_par"]:
-                    checked = True
-                    info["start_t"] = round(t, 3)
-                    info["start_speed"] = round(v, 4)
-                    info["start_offset"] = round(v_now - p["v0"], 4)
-                    on = []
-                    for i in (1, 3):  # front right, rear right
-                        c = veh.contacts[i]
-                        if not c.on_ground:
-                            on.append(False)
-                            continue
-                        cs, cv = uv(*c.position[:2])
-                        zs = float(np.interp(cs, s_cl, cl["z"])
-                                   + sec.height_uv(np.array([cs - s_cl[0]]), np.array([cv]))[0])
-                        on.append(bool(cv < -half and abs(c.position[2] - zs) <= SHOULDER_Z_TOL))
-                    info["right_on_shoulder"] = on
-                    info["start_ok"] = bool(abs(v - a.speed) <= START_SPEED_TOL
-                                            and abs(v_now - p["v0"]) <= START_OFFSET_TOL)
-                if "turn_t" not in info and s_now >= p["s_turn"]:
-                    info["turn_t"] = round(t, 3)
-            info["frames"] = frame
-            report["cases"].append(info)
-            print(f"lip_drive: case {k}: {json.dumps(info)}", flush=True)
+        import omni.physx
+        import omni.usd
+        from isaacsim.core.api import World
+        from isaacsim.core.utils.stage import add_reference_to_stage
+
+        from aib.control import GEAR_DRIVE, Command, State
+        from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
+        from scensim_isaac_world.surface_layer import SurfaceLayer
+
+        dt = FRAME / SUB
+        world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
+        stage = omni.usd.get_context().get_stage()
+        add_reference_to_stage(
+            usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
+            prim_path="/World/env")
+        ensure_vehicle_scene(stage)
+        world.reset()
+        world.play()
+        physx = omni.physx.get_physx_interface()
+
+        # the wheels' ground, as the world server's surface layer gives it (no road layer: the
+        # course's record is in course/, the base road carries its section)
+        smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
+        layer = SurfaceLayer(stage, smap)
+        road = os.path.join(a.map, "course", road_layer.FILE)
+        zones = road_layer.strip_zones(road_layer.load(road, classes=set(smap.table.classes)))
+        layer.add_record_zones(zones)
+
+        first = plan(cases[0], half, tread, math.radians(a.angle))
+        (x0, y0), h0 = xy_at(first["s_start"], first["v0"])
+        pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
+        veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
+                      rig.box_dims, pose, truth_settings=rig.component.get("truth"))
+        state = State()
+
+        def substeps(cmd):
+            for _ in range(SUB):
+                veh.apply(cmd, dt, state)
+                world.step(render=False)
+                veh.sample(physx, dt, state)
+                layer.update(veh, state.velocity[0], dt)
+
+        header = ["case", "t", "frame", "s", "v", "x", "y", "z", "roll", "pitch", "yaw", "speed",
+                  "yaw_rate", "ay", "fr_s", "fr_v", "fr_z", "rr_v", "steer"]
+        header += [f"w{i}_{k}" for i in range(4) for k in ("on", "cz", "cv", "cls", "zone")]
+        header += ["w1_shape", "w3_shape"]  # the colliders the right wheels stand on
+        rows, report = [], {"query": a.query, "speed": a.speed, "angle_deg": a.angle,
+                            "wheel_tread": tread, "wheel_base": base,
+                            "record_zones": [z.id for z in zones], "cases": []}
+        idle = Command(received=True, gear=GEAR_DRIVE)
+        try:
+            for case in cases:
+                p = plan(case, half, tread, math.radians(a.angle))
+                k = int(case["segment"])
+                (x, y), h = xy_at(p["s_start"], p["v0"])
+                z = float(np.interp(p["s_start"], s_cl, cl["z"])
+                          + sec.height_uv(np.array([p["s_start"] - s_cl[0]]),
+                                          np.array([p["v0"]]))[0]) + 0.05
+                pose = ((float(x), float(y), z), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
+                veh.teleport(pose, physx)
+                layer.reset(veh.path)
+                state = State()
+                for _ in range(SETTLE_FRAMES):
+                    substeps(idle)
+                s_at, v_at = uv(*state.position[:2])
+                info = {"segment": k, "expect": case["expect"], "lip_h": case["lip_h"],
+                        "lip_angle": case["lip_angle"], **{n: round(float(q), 4)
+                                                           for n, q in p.items()},
+                        "settled_v_err": round(v_at - p["v0"], 4)}
+                ss = np.arange(p["s_start"] - 10.0, p["s_end"] + 20.0, 0.5)
+                line = xy_at(ss, path_v(ss, p["s_turn"], p["v0"], p["v1"], p["angle"]))[0]
+                cmd = Command(received=True, gear=GEAR_DRIVE)
+                t, frame, checked, err_sum = 0.0, 0, False, 0.0
+                while t < 60.0:
+                    pos = np.array(state.position[:2])
+                    s_now, v_now = uv(*pos)
+                    if s_now >= p["s_end"]:
+                        break
+                    j = int(np.argmin(np.hypot(*(line - pos).T)))
+                    tgt = line[min(j + int(LOOKAHEAD / 0.5), len(line) - 1)]
+                    yaw = quat_rpy(*state.quat)[2]
+                    dx, dy = tgt - pos
+                    alpha = math.atan2(dy, dx) - yaw
+                    steer = math.atan2(2 * base * math.sin(alpha), math.hypot(dx, dy))
+                    v = state.velocity[0]
+                    cmd.tire_angle = max(-params.max_steer_angle,
+                                         min(params.max_steer_angle, steer))
+                    cmd.velocity = a.speed
+                    # a speed hold with an integral, so it holds --speed, not a drag's offset below
+                    # (only near it: no wind-up while it speeds up from rest)
+                    if abs(a.speed - v) < 1.0:
+                        err_sum = max(-5.0, min(5.0, err_sum + (a.speed - v) * FRAME))
+                    cmd.acceleration = max(-3.0, min(3.0, 1.5 * (a.speed - v) + 0.5 * err_sum))
+                    substeps(cmd)
+                    t += FRAME
+                    frame += 1
+                    q = state.quat
+                    R = rot(*q)
+                    r, pi, ya = quat_rpy(*q)
+                    P = np.array(state.position)
+                    fr = P + R @ np.array([base, -tread / 2, radius])
+                    rr_ = P + R @ np.array([0.0, -tread / 2, radius])
+                    fr_s, fr_v = uv(*fr[:2])
+                    s_now, v_now = uv(*P[:2])
+                    under = layer.surfaces_under(veh)
+                    wheels = []
+                    for i, c in enumerate(veh.contacts or []):
+                        srf = under[i] if i < len(under) else None
+                        cv = uv(*c.position[:2])[1] if c.on_ground else float("nan")
+                        wheels += [int(c.on_ground), round(float(c.position[2]), 4), round(cv, 4),
+                                   getattr(srf, "cls", "") or "", getattr(srf, "zone", "") or ""]
+                    rows.append([k, round(t, 4), frame, round(s_now, 4), round(v_now, 4),
+                                 *(round(float(c), 4) for c in P), round(r, 5), round(pi, 5),
+                                 round(ya, 5), round(v, 4), round(state.angular_velocity[2], 5),
+                                 round(state.acceleration[1], 4), round(fr_s, 4), round(fr_v, 4),
+                                 round(float(fr[2]), 4), round(uv(*rr_[:2])[1], 4),
+                                 round(cmd.tire_angle, 5), *wheels,
+                                 *(veh.contacts[i].shape if veh.contacts else "" for i in (1, 3))])
+                    if not checked and s_now >= p["s_par"]:
+                        checked = True
+                        info["start_t"] = round(t, 3)
+                        info["start_speed"] = round(v, 4)
+                        info["start_offset"] = round(v_now - p["v0"], 4)
+                        on = []
+                        for i in (1, 3):  # front right, rear right
+                            c = veh.contacts[i]
+                            if not c.on_ground:
+                                on.append(False)
+                                continue
+                            cs, cv = uv(*c.position[:2])
+                            zs = float(np.interp(cs, s_cl, cl["z"])
+                                       + sec.height_uv(np.array([cs - s_cl[0]]), np.array([cv]))[0])
+                            on.append(bool(cv < -half
+                                           and abs(c.position[2] - zs) <= SHOULDER_Z_TOL))
+                        info["right_on_shoulder"] = on
+                        info["start_ok"] = bool(abs(v - a.speed) <= START_SPEED_TOL
+                                                and abs(v_now - p["v0"]) <= START_OFFSET_TOL)
+                    if "turn_t" not in info and s_now >= p["s_turn"]:
+                        info["turn_t"] = round(t, 3)
+                info["frames"] = frame
+                report["cases"].append(info)
+                print(f"lip_drive: case {k}: {json.dumps(info)}", flush=True)
+        finally:
+            with open(os.path.join(a.out, "lip.csv"), "w", newline="") as f:
+                wr = csv.writer(f)
+                wr.writerow(header)
+                wr.writerows(rows)
+            json.dump(report, open(os.path.join(a.out, "cases.json"), "w"), indent=1)
+            print(f"lip_drive: {len(rows)} frames, {len(report['cases'])} case(s) to {a.out}",
+                  flush=True)
+    except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+        code = app_exit.code_of(e)
     finally:
-        with open(os.path.join(a.out, "lip.csv"), "w", newline="") as f:
-            wr = csv.writer(f)
-            wr.writerow(header)
-            wr.writerows(rows)
-        json.dump(report, open(os.path.join(a.out, "cases.json"), "w"), indent=1)
-        print(f"lip_drive: {len(rows)} frames, {len(report['cases'])} case(s) to {a.out}",
-              flush=True)
-        app.close()
+        app_exit.close(app, code)
 
 
 if __name__ == "__main__":

@@ -64,80 +64,87 @@ def main():
     rig = EgoConfig.load(ego).load_rig()
     params = rig.vehicle
 
+    from aib import app_exit
     from isaacsim import SimulationApp
     app = SimulationApp({"headless": True, "extra_args": ["--/crashreporter/url="]})
-    import omni.physx
-    import omni.usd
-    from isaacsim.core.api import World
-    from isaacsim.core.utils.stage import add_reference_to_stage
-
-    from aib.control import GEAR_DRIVE, Command, State
-    from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
-
-    dt = FRAME / SUB
-    world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
-    stage = omni.usd.get_context().get_stage()
-    add_reference_to_stage(usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
-                           prim_path="/World/env")
-    ensure_vehicle_scene(stage)
-    world.reset()
-    world.play()
-    physx = omni.physx.get_physx_interface()
-    i0 = int(np.searchsorted(s, a.s0))
-    h0 = float(c["heading"][i0])
-    pose = ((float(lane[i0, 0]), float(lane[i0, 1]), float(lane_z[i0]) + 0.05),
-            (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
-    veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
-                  rig.box_dims, pose, truth_settings=rig.component.get("truth"))
-    veh.teleport(pose, physx)
-    state = State()
-    idle = Command(received=True, gear=GEAR_DRIVE)
-    for _ in range(40):
-        for _ in range(SUB):
-            veh.apply(idle, dt, state)
-            world.step(render=False)
-            veh.sample(physx, dt, state)
-    cmd = Command(received=True, gear=GEAR_DRIVE)
-    rows, t, frame = [], 0.0, 0
-    wb = params.wheel_base
+    code = 0
     try:
-        while t < 120.0:
-            p = np.array(state.position[:2])
-            j = int(np.argmin(np.hypot(*(lane - p).T)))
-            if s[j] >= a.s1:
-                break
-            k = int(np.searchsorted(s, s[j] + LOOKAHEAD))
-            k = min(k, len(s) - 1)
-            q = state.quat
-            yaw = quat_rpy(*q)[2]
-            dx, dy = lane[k] - p
-            alpha = math.atan2(dy, dx) - yaw
-            ld = math.hypot(dx, dy)
-            steer = math.atan2(2 * wb * math.sin(alpha), ld)
-            v = state.velocity[0]
-            cmd.tire_angle = max(-params.max_steer_angle, min(params.max_steer_angle, steer))
-            cmd.velocity = a.speed
-            cmd.acceleration = max(-3.0, min(2.0, 1.0 * (a.speed - v)))
+        import omni.physx
+        import omni.usd
+        from isaacsim.core.api import World
+        from isaacsim.core.utils.stage import add_reference_to_stage
+
+        from aib.control import GEAR_DRIVE, Command, State
+        from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
+
+        dt = FRAME / SUB
+        world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
+        stage = omni.usd.get_context().get_stage()
+        add_reference_to_stage(
+            usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
+            prim_path="/World/env")
+        ensure_vehicle_scene(stage)
+        world.reset()
+        world.play()
+        physx = omni.physx.get_physx_interface()
+        i0 = int(np.searchsorted(s, a.s0))
+        h0 = float(c["heading"][i0])
+        pose = ((float(lane[i0, 0]), float(lane[i0, 1]), float(lane_z[i0]) + 0.05),
+                (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
+        veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
+                      rig.box_dims, pose, truth_settings=rig.component.get("truth"))
+        veh.teleport(pose, physx)
+        state = State()
+        idle = Command(received=True, gear=GEAR_DRIVE)
+        for _ in range(40):
             for _ in range(SUB):
-                veh.apply(cmd, dt, state)
+                veh.apply(idle, dt, state)
                 world.step(render=False)
                 veh.sample(physx, dt, state)
-            t += FRAME
-            frame += 1
-            q = state.quat
-            R = rot(*q)
-            vw = R @ np.array(state.velocity)
-            ww = R @ np.array(state.angular_velocity)
-            r, pi, ya = quat_rpy(*q)
-            rows.append([round(t, 4), frame, *state.position, r, pi, ya, *vw, *ww, 1])
+        cmd = Command(received=True, gear=GEAR_DRIVE)
+        rows, t, frame = [], 0.0, 0
+        wb = params.wheel_base
+        try:
+            while t < 120.0:
+                p = np.array(state.position[:2])
+                j = int(np.argmin(np.hypot(*(lane - p).T)))
+                if s[j] >= a.s1:
+                    break
+                k = int(np.searchsorted(s, s[j] + LOOKAHEAD))
+                k = min(k, len(s) - 1)
+                q = state.quat
+                yaw = quat_rpy(*q)[2]
+                dx, dy = lane[k] - p
+                alpha = math.atan2(dy, dx) - yaw
+                ld = math.hypot(dx, dy)
+                steer = math.atan2(2 * wb * math.sin(alpha), ld)
+                v = state.velocity[0]
+                cmd.tire_angle = max(-params.max_steer_angle, min(params.max_steer_angle, steer))
+                cmd.velocity = a.speed
+                cmd.acceleration = max(-3.0, min(2.0, 1.0 * (a.speed - v)))
+                for _ in range(SUB):
+                    veh.apply(cmd, dt, state)
+                    world.step(render=False)
+                    veh.sample(physx, dt, state)
+                t += FRAME
+                frame += 1
+                q = state.quat
+                R = rot(*q)
+                vw = R @ np.array(state.velocity)
+                ww = R @ np.array(state.angular_velocity)
+                r, pi, ya = quat_rpy(*q)
+                rows.append([round(t, 4), frame, *state.position, r, pi, ya, *vw, *ww, 1])
+        finally:
+            with open(os.path.join(a.out, "ego.csv"), "w", newline="") as f:
+                wr = csv.writer(f)
+                wr.writerow(["t", "frame", "x", "y", "z", "roll", "pitch", "yaw", "vx", "vy", "vz",
+                             "wx", "wy", "wz", "measured"])
+                wr.writerows(rows)
+            print(f"arc_drive: {len(rows)} frames to {a.out}/ego.csv", flush=True)
+    except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+        code = app_exit.code_of(e)
     finally:
-        with open(os.path.join(a.out, "ego.csv"), "w", newline="") as f:
-            wr = csv.writer(f)
-            wr.writerow(["t", "frame", "x", "y", "z", "roll", "pitch", "yaw", "vx", "vy", "vz",
-                         "wx", "wy", "wz", "measured"])
-            wr.writerows(rows)
-        print(f"arc_drive: {len(rows)} frames to {a.out}/ego.csv", flush=True)
-        app.close()
+        app_exit.close(app, code)
 
 
 if __name__ == "__main__":

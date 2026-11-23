@@ -195,6 +195,7 @@ def main(argv=None):
     watchdog = StepWatchdog()
     startup = watchdog.step("Kit's start and the preload", deadline=STARTUP_LIMIT)
     startup.__enter__()
+    from aib import app_exit  # as the world's ground (aib.isaac.ground), aib is on the path
     from isaacsim import SimulationApp
 
     # Kit uploads a crash's minidump to NVIDIA by default: kept on disk only (its dumpDir).
@@ -208,6 +209,17 @@ def main(argv=None):
         config.update(hide_ui=True, width=854, height=480, window_width=1920,
                       window_height=1080)
     app = SimulationApp(config)
+    code = 0
+    try:
+        _serve(args, app, socket, run, watchdog, startup, surface_maps, preload, started, log)
+    except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+        code = app_exit.code_of(e)
+    finally:
+        app_exit.close(app, code)
+
+
+def _serve(args, app, socket, run, watchdog, startup, surface_maps, preload, started, log):
+    """Kit is up: the world, its preload and the requests, until the app stops."""
     kit_log = kit_log_file()
     if kit_log:
         if not os.path.exists(kit_log):
@@ -243,10 +255,7 @@ def main(argv=None):
                       "not end this world server", kit_log, time.monotonic() - started)
     log.info("Isaac Sim %s up in %.1f s, physics at %g Hz", world.isaac_version,
              time.monotonic() - started, 1 / world.max_physics_dt)
-    try:
-        run(world, socket, should_stop=lambda: not app.is_running(), watchdog=watchdog)
-    finally:
-        app.close()
+    run(world, socket, should_stop=lambda: not app.is_running(), watchdog=watchdog)
 
 
 if __name__ == "__main__":
