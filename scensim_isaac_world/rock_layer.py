@@ -72,6 +72,30 @@ ROOT = "/World/RoadRocks"
 COLL_ROOT = "/World/RoadCollision"
 
 
+def define_groups(stage, groups="/World/vehicleCollisionGroups"):
+    """The road's collision groups, made before the simulation starts (issue 123: a group made
+    while it runs is not applied to colliders PhysX already holds): `roadBase` (the world's
+    ground, its members set when the road loads), `rocks` and `rockTiles` (filtering the wheels'
+    ground query and `roadBase`), `roadDetail` (the detail's tiles, filtering the wheels' query).
+    Idempotent; the vehicles' groups first (issue 039)."""
+    from pxr import Sdf, UsdPhysics
+
+    from aib.isaac.vehicle import ensure_vehicle_scene
+
+    ensure_vehicle_scene(stage)
+    query = Sdf.Path(f"{groups}/groundQuery")
+    base = UsdPhysics.CollisionGroup.Define(stage, f"{groups}/roadBase")
+    base.GetCollidersCollectionAPI().CreateIncludesRel()
+    for name, filt in (("rocks", (query, base.GetPath())), ("rockTiles", (query, base.GetPath())),
+                       ("roadDetail", (query,))):
+        g = UsdPhysics.CollisionGroup.Define(stage, f"{groups}/{name}")
+        rel = g.CreateFilteredGroupsRel()
+        for t in filt:
+            if t not in rel.GetTargets():
+                rel.AddTarget(t)
+        g.GetCollidersCollectionAPI().CreateIncludesRel()
+
+
 class DetailColliders:
     """The detail's collision tiles (issue 119: every road layer's, rocks or not): a triangle
     mesh at COLLISION_STEP of each tile within COLLISION_REACH of a vehicle, its heights the
@@ -83,17 +107,11 @@ class DetailColliders:
     pothole's edge."""
 
     def __init__(self, stage, layer, groups="/World/vehicleCollisionGroups"):
-        from pxr import UsdPhysics, Vt
+        from pxr import Vt
 
-        from aib.isaac.vehicle import ensure_vehicle_scene
-
-        ensure_vehicle_scene(stage)  # the vehicles' groups first (issue 039)
+        define_groups(stage, groups)  # made already when the world made them before play
         self.stage, self.layer = stage, layer
         self.group = f"{groups}/roadDetail"
-        UsdPhysics.CollisionGroup.Define(stage, self.group).CreateFilteredGroupsRel().AddTarget(
-            f"{groups}/groundQuery")
-        UsdPhysics.CollisionGroup.Get(stage, self.group).GetCollidersCollectionAPI() \
-            .CreateIncludesRel()
         d = layer.detail
         n = self.n_c = d.n // COLLISION_STEP
         a = (np.arange(n)[None, :] + (n + 1) * np.arange(n)[:, None]).ravel()
@@ -177,11 +195,9 @@ class RockStream:
         from pxr import Sdf, UsdGeom, UsdPhysics
 
         self.stage, self.layer, self.physx = stage, layer, physx
-        # The vehicles' own groups first (issue 039): aib makes chassis and groundQuery only
-        # when the groups' scope is missing, and the world loads the road before any ego.
-        from aib.isaac.vehicle import ensure_vehicle_scene
-
-        ensure_vehicle_scene(stage)
+        # The vehicles' own groups first (issue 039), then the road's (issue 123: the world
+        # makes them before the simulation starts; made here only when it did not)
+        define_groups(stage, groups)
         self.rock_g = f"{groups}/rocks"
         self.own_colliders = colliders is None
         self.colliders = DetailColliders(stage, layer, groups) if self.own_colliders \
@@ -191,16 +207,9 @@ class RockStream:
         # prewarmed pool in it took 100 ms of the next step
         self.static_g = f"{groups}/rockTiles"
         base_g = f"{groups}/roadBase"
-        for g in (self.rock_g, self.static_g):
-            UsdPhysics.CollisionGroup.Define(stage, g).CreateFilteredGroupsRel().AddTarget(
-                f"{groups}/groundQuery")
-            UsdPhysics.CollisionGroup.Get(stage, g).GetCollidersCollectionAPI() \
-                .CreateIncludesRel()
-        if ground:
-            UsdPhysics.CollisionGroup.Define(stage, base_g).GetCollidersCollectionAPI() \
-                .CreateIncludesRel().SetTargets([Sdf.Path(p) for p in ground])
-            for g in (self.rock_g, self.static_g):
-                UsdPhysics.CollisionGroup.Get(stage, g).GetFilteredGroupsRel().AddTarget(base_g)
+        if ground:  # the world's ground in roadBase, which rocks and rockTiles filter out
+            UsdPhysics.CollisionGroup.Get(stage, base_g).GetCollidersCollectionAPI() \
+                .GetIncludesRel().SetTargets([Sdf.Path(p) for p in ground])
         mat = UsdPhysics.MaterialAPI.Apply(UsdGeom.Scope.Define(stage, f"{ROOT}/material")
                                            .GetPrim())
         mat.CreateStaticFrictionAttr(0.7)  # rock on gravel and on steel, about 0.6-0.8
@@ -460,7 +469,9 @@ class RockStream:
                     self.pool.setdefault(key, []).append(path)
                     n += 1
                 self.reserved[key] = max(want, self.reserved.get(key, 0))
-        self._flush_groups()
+        # the pool's prims join `rocks` at the next frame's end (`update`), as a live rock does:
+        # made and grouped in one step, omni.physx took each for one in two groups and warned
+        # so, once a prim (issue 123: 769 warnings at a load)
         self.made -= n  # the drive's count, not the pool's
         self.prewarmed += n
         self.reserved_for = max(vehicles, self.reserved_for)

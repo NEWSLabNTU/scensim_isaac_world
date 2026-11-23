@@ -263,9 +263,11 @@ class IsaacWorld(WorldBase):
         if self.ego_config is not None:
             # Vehicle context, collision groups, friction table: before the simulation starts
             # (PhysX ignores the vehicle context's axes once it runs).
-            from aib.isaac.vehicle import ensure_vehicle_scene
+            # The road's groups too (issue 123): a group made once the simulation runs is not
+            # applied to colliders PhysX already holds.
+            from scensim_isaac_world import rock_layer
 
-            ensure_vehicle_scene(self.stage)
+            rock_layer.define_groups(self.stage)
         self.world.reset()
         self.world.play()
         self._warm_tracking()

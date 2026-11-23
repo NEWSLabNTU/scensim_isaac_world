@@ -166,7 +166,9 @@ def main():
                     help="issue 123: the simulation started before the world's USD and the road, "
                     "as the world server loads a map")
     ap.add_argument("--groups-early", action="store_true",
-                    help="issue 123: roadBase and the rocks' groups made before the simulation starts")
+                    help="issue 123: roadBase's members set before the simulation starts too")
+    ap.add_argument("--groups-late", action="store_true",
+                    help="issue 123, as before its fix: the road's groups made at the road's load")
     ap.add_argument("--rock-pool", choices=("on", "off", "late"), default="on",
                     help="issue 123: the parked-rock pool as it is, none, or its group a step late")
     ap.add_argument("--rocks-on-base", action="store_true",
@@ -226,11 +228,13 @@ def main():
 
     from aib.control import GEAR_DRIVE, Command, State
     from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
+    from scensim_isaac_world import rock_layer
     from scensim_isaac_world.surface_layer import SurfaceLayer
 
     dt = FRAME / SUB
     world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
     stage = omni.usd.get_context().get_stage()
+
     def add_world():
         add_reference_to_stage(
             usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
@@ -239,9 +243,10 @@ def main():
     if not a.server_order:
         add_world()
     ensure_vehicle_scene(stage)
+    if not a.groups_late:  # as world.py: the road's groups before the simulation starts
+        rock_layer.define_groups(stage)
     if a.groups_early:
-        # issue 123's test (iv): the world's ground in roadBase and the rocks' groups filtering
-        # it, made before the simulation starts (the rock stream makes the same at the load)
+        # issue 123's test (iv): the world's ground in roadBase before the simulation starts too
         import yaml
         from pxr import Sdf, UsdPhysics
 
@@ -249,13 +254,8 @@ def main():
 
         with open(os.path.join(a.map, "isaac", "world.yaml")) as f:
             gp = list(yaml.safe_load(f).get("ground_paths") or [])
-        UsdPhysics.CollisionGroup.Define(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
-            .CreateIncludesRel().SetTargets([Sdf.Path(q) for q in gp])
-        for g in ("rocks", "rockTiles"):
-            grp = UsdPhysics.CollisionGroup.Define(stage, f"{GROUPS}/{g}")
-            grp.CreateFilteredGroupsRel().SetTargets([Sdf.Path(f"{GROUPS}/groundQuery"),
-                                                      Sdf.Path(f"{GROUPS}/roadBase")])
-            grp.GetCollidersCollectionAPI().CreateIncludesRel()
+        UsdPhysics.CollisionGroup.Get(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
+            .GetIncludesRel().SetTargets([Sdf.Path(q) for q in gp])
     world.reset()
     world.play()
     if a.server_order:  # issue 123: as world.py, the simulation running before the map's USD
