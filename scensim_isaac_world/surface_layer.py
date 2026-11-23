@@ -35,8 +35,11 @@ path order, so two runs of a scenario cut the same ruts.
 
 A world with a road detail (`road_layer`, roadmap 066 R3) has `road`: before each substep
 `place` runs the egos' tire contact on it, and each wheel's friction is the surface's times
-the contact's scale (the tire's load over PhysX's); `flush` streams its render mesh.
+the contact's scale (the tire's load over PhysX's); `flush` streams its render mesh. The road
+record's shoulder and run-off strips are zones under the map's own (086 C5c,
+`add_record_zones`).
 """
+import dataclasses
 import logging
 import math
 import os
@@ -119,6 +122,7 @@ class SurfaceLayer:
         # rut sets are under; set by the world for a registered map (056, 086 C4)
         self.surface_dirs, self.ruts_roots = (), ()
         self._named_cache = {}
+        self.record_zones = []  # the road record's strips (086 C5c), under every map's zones
         self.make_tiles = make_tiles
         self.cut_changed = False  # a named map's zones changed the ground: settle it
         self.origin = tuple(float(c) for c in map_origin)  # the world frame's origin in the map's
@@ -181,11 +185,27 @@ class SurfaceLayer:
                  self.condition.wetness, "".join(f", {k}={v}" for k, v in zones.items()))
 
     def _named(self, name):
-        """Named map `name`, parsed once per layer (a LoadWorld makes a new layer)."""
+        """Named map `name`, parsed once per layer (a LoadWorld makes a new layer), the road
+        record's strips under its zones as under the map's own (`add_record_zones`)."""
         if name not in self._named_cache:
-            self._named_cache[name] = surfaces.load_named(self.surface_dirs, name,
-                                                          self.ruts_roots)
+            smap = surfaces.load_named(self.surface_dirs, name, self.ruts_roots)
+            if self.record_zones:
+                smap = dataclasses.replace(smap, zones=[*self.record_zones, *smap.zones])
+            self._named_cache[name] = smap
         return self._named_cache[name]
+
+    def add_record_zones(self, zones):
+        """The road record's shoulder and run-off strips (`road_layer.strip_zones`, 086 C5c)
+        under the map's own zones, so a zone of the map wins where they overlap; a named map
+        gets them too. At the load, before a condition or a named map."""
+        self.record_zones = list(zones)
+        if not self.record_zones:
+            return
+        own = dataclasses.replace(self.own, zones=[*self.record_zones, *self.own.zones])
+        self.own = self.base = self.map = own
+        self._named_cache = {}
+        log.info("surface map: %d zone(s) from the road record's strips under the map's",
+                 len(self.record_zones))
 
     def use_map(self, smap, name=None):
         """Another map for this world (a named one, or `own` again with `name` None): the

@@ -1,4 +1,4 @@
-"""086 C5b: a fixture course, its centreline and its road record from the course's `fixture:`
+"""086 C5b and C5c: a fixture course, its centreline and its road record from the course's `fixture:`
 block instead of OSM and a DEM (`courses/fixture_c5.yaml`).
 
 The plan is a list of straights, clothoids (curvature linear in s) and arcs, integrated from the
@@ -6,7 +6,8 @@ origin heading east; the profile one grade. The section is a table of rows in s,
 them, and becomes the record (`road_record.Stations`) at every centreline station: the record is
 the spec, which the road mesh then carries (`geometry.road`'s `section`). The ground is flat
 across the road, `terrain_below` m under its centreline, cut to the road as a real course's is
-(`geometry.terrain`), and the photo plain grey.
+(`geometry.terrain`), and the photo plain grey. `strips:` gives a side's shoulder and run-off
+surface classes over a range of s (086 C5c: the surface layer's zones from the record).
 """
 import math
 import os
@@ -26,7 +27,13 @@ COLUMNS = {
     "crown_offset": ("crown_offset", None, False),
     "lip_h_left": ("lip_h", 0, False),
     "lip_h_right": ("lip_h", 1, False),
+    "lip_angle_left": ("lip_angle", 0, False),  # deg, as the record's
+    "lip_angle_right": ("lip_angle", 1, False),
+    "runoff_len_left": ("runoff_len", 0, False),
+    "runoff_len_right": ("runoff_len", 1, False),
 }
+# a strip's surface classes, over a range of s on one side (`strips:`, 086 C5c)
+STRIP_TEXT = ("shoulder_surface", "runoff_surface")
 
 
 def is_fixture(course):
@@ -80,7 +87,7 @@ def stations(course, c):
     fx, r = course["fixture"], course["road"]
     st, problems = rr.from_constants({
         "half_width": r["lanes"] * r["lane_width"] / 2, "shoulder": float(r["shoulder"]),
-        "crown": 0.0, "ditch_depth": 0.0, "ditch_bottom": 0.0,
+        "crown": float(fx.get("crown", 0.0)), "ditch_depth": 0.0, "ditch_bottom": 0.0,
         "lip_angle": {"left": float(fx.get("lip_angle_left", 90.0)),
                       "right": float(fx.get("lip_angle_right", 90.0))}})
     assert not problems, problems
@@ -105,6 +112,19 @@ def stations(course, c):
             common[field] = val
         else:
             side[field][sd] = val
+    sabs = np.asarray(c["s"], float)
+    for k, strip in enumerate(fx.get("strips") or []):
+        sd = {"left": 0, "right": 1}.get(strip.get("side"))
+        unknown = set(strip) - {"from", "to", "side", *STRIP_TEXT}
+        if sd is None or unknown or not float(strip["from"]) < float(strip["to"]):
+            raise ValueError(f"fixture strips[{k}]: from < to, side left or right, and "
+                             f"{', '.join(STRIP_TEXT)} ({strip})")
+        on = (sabs >= float(strip["from"])) & (sabs <= float(strip["to"]))
+        for name in STRIP_TEXT:
+            if name in strip:
+                text[name] = text[name].astype(object)
+                text[name][sd, on] = str(strip[name])
+    text = {k: v.astype(str) for k, v in text.items()}
     xyz = np.stack([c["x"], c["y"], c["z"]], axis=1)
     return rr.Stations(u, common, side, text, xyz)
 

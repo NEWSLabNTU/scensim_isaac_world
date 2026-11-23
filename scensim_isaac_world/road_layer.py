@@ -444,6 +444,61 @@ def main(argv=None):
     return 0
 
 
+STRIPS = ("shoulder", "runoff")
+
+
+def strip_zones(corridors):
+    """The record's shoulder and run-off strips as surface zones (086 C5c): per corridor and
+    side, each run of stations with the same non-empty `shoulder_surface` (or
+    `runoff_surface`) is one zone, from the carriageway's edge to the shoulder's end (or from
+    there `runoff_len` on), in the corridors' frame, the surface map's. Ids
+    `record_<side>_<strip>_<n>`. The surface layer puts them under the map's own zones."""
+    from . import surfaces
+
+    out, count = [], {}
+    for c in corridors:
+        st = c.stations
+        if st is None:
+            continue
+        # one station (a constant section): the strip runs the corridor's whole length
+        u = np.clip(st.u, 0.0, c.length) if len(st.u) > 1 else c.seg_u
+        n_u = len(u)
+
+        def per(a):
+            a = np.asarray(a)
+            return np.repeat(a[:1], n_u) if len(st.u) == 1 else a
+        seg = np.clip(np.searchsorted(c.seg_u, u, side="right") - 1, 0, len(c.seg_len) - 1)
+        t = (u - c.seg_u[seg])[:, None]
+        xy = c.centreline[seg] + t * c.seg_dir[seg]
+        left = np.stack([-c.seg_dir[seg, 1], c.seg_dir[seg, 0]], axis=1)
+        w = per(st.common["half_width"])
+        for i, side in enumerate(rr.SIDES):
+            sign = 1.0 if side == "left" else -1.0
+            sh, run = per(st.side["shoulder"][i]), per(st.side["runoff_len"][i])
+            for strip in STRIPS:
+                cls = per(np.asarray(st.text[f"{strip}_surface"][i]).astype(str))
+                near, far = (w, w + sh) if strip == "shoulder" else (w + sh, w + sh + run)
+                ok = (cls != "") & (far > near)
+                j = 0
+                while j < len(u):
+                    if not ok[j]:
+                        j += 1
+                        continue
+                    k = j
+                    while k + 1 < len(u) and ok[k + 1] and cls[k + 1] == cls[j]:
+                        k += 1
+                    if k > j:  # a strip of one station has no length
+                        r = slice(j, k + 1)
+                        inner = xy[r] + (sign * near[r])[:, None] * left[r]
+                        outer = xy[r] + (sign * far[r])[:, None] * left[r]
+                        n = count[(side, strip)] = count.get((side, strip), 0) + 1
+                        out.append(surfaces.Zone(f"record_{side}_{strip}_{n}",
+                                                 np.concatenate([inner, outer[::-1]]),
+                                                 cls=str(cls[j])))
+                    j = k + 1
+    return out
+
+
 def load_ground(path):
     """road_detail.yaml's `ground`: the prims of the world's own road ground (the base), which
     the rocks do not collide with, so a loose rock rests on the detail's collision tiles."""
