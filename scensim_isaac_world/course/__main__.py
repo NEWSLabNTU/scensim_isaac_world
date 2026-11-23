@@ -161,6 +161,18 @@ def main(argv=None):
     if a.steps == ["record"]:  # from the files the earlier steps wrote: no fetch needed
         print("record:", json.dumps(write_record(work, course)))
         return 0
+    if a.steps in (["maps"], ["record", "maps"]) and not fixture.is_fixture(course):
+        # Autoware's maps again from the saved centreline, meshes and record (086 C5d: a
+        # published course's maps rebuilt with no fetch), the record first when asked
+        if "record" in a.steps:
+            print("record:", json.dumps(write_record(work, course)))
+        c, _ = saved_centreline(work)
+        mp = maps.build(c, course, cl.Frame(course["origin"]), a.map_dir,
+                        course.get("speed_limit_kmh", 60.0))
+        json.dump(mp, open(os.path.join(work, "maps.json"), "w"), indent=1)
+        print("maps:", json.dumps({k: (v if not isinstance(v, list) else len(v))
+                                   for k, v in mp.items()}))
+        return 0
     if a.steps == ["scenario"]:  # likewise, from centreline.npz and .json (a published course)
         print("scenario:", json.dumps(scenario.build(*saved_centreline(work), course, a.map_dir)))
         return 0

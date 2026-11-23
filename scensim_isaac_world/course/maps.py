@@ -6,13 +6,19 @@ the lane along the section (s increasing) is the one left of the centreline and 
 back. Its bounds: the lanes' outer edges (white, solid) and the centre line (yellow, solid: no
 passing on a mountain road), shared by both lanes, inverted for the one running back. Every
 point carries `local_x`/`local_y` (the map frame) and `ele`, and a latitude and longitude from
-the course's transverse Mercator, which `map_projector_info.yaml` names.
+the course's transverse Mercator, which `map_projector_info.yaml` names. A bound's `ele` is the
+road record's height at the point (086 C5d): the centreline's z plus the section's
+`height_uv(u, v)` at the bound's offset, so a banked or crowned road's edges sit on it.
 
 The point cloud: the triangles the lidar sees, sampled. The terrain grid's quads are split
 from their first corner to their third, as the renderer splits them, so a point lies on the
 surface the lidar's ray hits and not on a bilinear patch near it. Within `NEAR` m of the road
 the sampling is `STEP_NEAR`, beyond it `STEP_FAR`; the road at `STEP_NEAR`. Written as a binary
 PCD of x, y, z (float32), as Autoware's map loader reads, thinned to one point per `VOXEL`.
+Over `DIVIDE_POINTS` points it is divided (086 C5d, issue 072's layout): `pointcloud_map.pcd/`
+holds `TILE` m tiles `<course>_<i>_<j>.pcd` (the tile from x = i TILE, y = j TILE), every point
+kept, and `pointcloud_map_metadata.yaml` names each with its corner; the profile loads a
+divided map dynamically.
 
 A closed course's lanelets close: the last stretch ends on the first one's first points.
 """
@@ -25,6 +31,9 @@ STEP_NEAR = 0.25    # m
 STEP_FAR = 1.0      # m
 NEAR = 120.0        # m from the centreline
 VOXEL = 0.2         # m: the cloud keeps one point per voxel this size
+DIVIDE_POINTS = 1_000_000  # a cloud over this many points is written as tiles (issue 072)
+TILE = 100.0        # m: a divided cloud's tile
+METADATA = "pointcloud_map_metadata.yaml"
 
 
 def _sample_points(c, step):
@@ -33,8 +42,10 @@ def _sample_points(c, step):
     return np.searchsorted(s, t).clip(0, len(s) - 1)
 
 
-def lanelets(c, course, frame, out, speed_limit_kmh):
-    """Write the Lanelet2 map; returns the lanelets' ids along the section and back."""
+def lanelets(c, course, frame, out, speed_limit_kmh, section=None):
+    """Write the Lanelet2 map; returns the lanelets' ids along the section and back. `section`:
+    the road record's (`road_detail.StationSection`), whose height each bound node takes; None:
+    the centreline's height across (a level road's)."""
     from .geometry import _normals, is_closed
 
     r = course["road"]
@@ -54,9 +65,13 @@ def lanelets(c, course, frame, out, speed_limit_kmh):
         nodes.append((node_id[0], lat, lon, px, py, pz))
         return node_id[0]
 
+    u = np.asarray(c["s"], float) - float(c["s"][0])
     lines = {}
     for name, off in (("left", edge), ("centre", 0.0), ("right", -edge)):
-        lines[name] = [node(x[i] + off * nrm[i, 0], y[i] + off * nrm[i, 1], z[i]) for i in idx]
+        zb = z[idx] if section is None else \
+            z[idx] + section.height_uv(u[idx], np.full(len(idx), off))
+        lines[name] = [node(x[i] + off * nrm[i, 0], y[i] + off * nrm[i, 1], zi)
+                       for i, zi in zip(idx, zb)]
         if closed:  # back to the first point
             lines[name].append(lines[name][0])
     # stretches of CHUNK m, sharing their end points
@@ -168,7 +183,62 @@ def _sample_ribbon(pts, faces, step, rng):
     return np.concatenate(out)
 
 
-def point_cloud(m, c, out, extra=()):
+def _write_pcd(path, pts):
+    with open(path, "wb") as f:
+        f.write(("# .PCD v0.7 - scensim_isaac_world.course (roadmap 058)\nVERSION 0.7\n"
+                 "FIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
+                 f"WIDTH {len(pts)}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {len(pts)}\n"
+                 "DATA binary\n").encode())
+        f.write(pts.tobytes())
+
+
+def read_pcd(path):
+    """A binary x, y, z float32 PCD as `_write_pcd` writes it: (n, 3) float32."""
+    with open(path, "rb") as f:
+        data = f.read()
+    head, _, body = data.partition(b"DATA binary\n")
+    n = int(next(ln.split()[1] for ln in head.decode().splitlines() if ln.startswith("POINTS")))
+    return np.frombuffer(body, dtype=np.float32, count=3 * n).reshape(n, 3)
+
+
+def _clear(out, map_dir):
+    """The builder's own earlier cloud at `out`, a file or a directory of tiles, and its
+    metadata: gone, so a rebuild leaves no stale tiles."""
+    import shutil
+
+    if os.path.isdir(out):
+        shutil.rmtree(out)
+    elif os.path.exists(out):
+        os.remove(out)
+    meta = os.path.join(map_dir, METADATA)
+    if os.path.exists(meta):
+        os.remove(meta)
+
+
+def write_cloud(pts, out, name, divide=DIVIDE_POINTS):
+    """`pts` (float32) at `out`: one PCD, or over `divide` points TILE m tiles in a directory
+    of that name with the metadata beside it (issue 072's layout). Returns the tiles' count
+    (0: one file)."""
+    map_dir = os.path.dirname(out)
+    _clear(out, map_dir)
+    if len(pts) <= divide:
+        _write_pcd(out, pts)
+        return 0
+    os.makedirs(out)
+    cell = np.floor(pts[:, :2].astype(np.float64) / TILE).astype(np.int64)
+    keys, inv = np.unique(cell, axis=0, return_inverse=True)
+    inv = np.ravel(inv)
+    lines = [f"x_resolution: {TILE}", f"y_resolution: {TILE}"]
+    for k, (i, j) in enumerate(keys):
+        tile = f"{name}_{i}_{j}.pcd"
+        _write_pcd(os.path.join(out, tile), pts[inv == k])
+        lines.append(f"{tile}: [{int(i * TILE)}, {int(j * TILE)}]")
+    with open(os.path.join(map_dir, METADATA), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return len(keys)
+
+
+def point_cloud(m, c, out, extra=(), name="course"):
     rng = np.random.default_rng(58)
     parts = [_sample_terrain(m, c, rng), _sample_ribbon(m["road_points"], m["road_faces"],
                                                         STEP_NEAR, rng)]
@@ -178,13 +248,7 @@ def point_cloud(m, c, out, extra=()):
     key = np.floor(pts / VOXEL).astype(np.int64)
     _, first = np.unique(key, axis=0, return_index=True)
     pts = pts[np.sort(first)].astype(np.float32)
-    with open(out, "wb") as f:
-        f.write(("# .PCD v0.7 - scensim_isaac_world.course (roadmap 058)\nVERSION 0.7\n"
-                 "FIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
-                 f"WIDTH {len(pts)}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {len(pts)}\n"
-                 "DATA binary\n").encode())
-        f.write(pts.tobytes())
-    return len(pts)
+    return len(pts), write_cloud(pts, out, name)
 
 
 def projector(frame, map_dir):
@@ -200,13 +264,19 @@ def projector(frame, map_dir):
 
 
 def build(c, course, frame, map_dir, speed_limit_kmh=60.0):
+    from .. import road_detail as rd
+    from . import record
+
     m = np.load(os.path.join(map_dir, "course", "meshes.npz"))
+    # the lanelets' heights from the road record (086 C5d): refused, naming the step, without
+    section = rd.StationSection(record.load(os.path.join(map_dir, "course")))
     along, back = lanelets(c, course, frame, os.path.join(map_dir, "lanelet2_map.osm"),
-                           speed_limit_kmh)
+                           speed_limit_kmh, section)
     extra = []
     props = os.path.join(map_dir, "course", "props_points.npy")
     if os.path.exists(props):  # the USD step's guardrails and trees (C5)
         extra.append(np.load(props))
-    n = point_cloud(m, c, os.path.join(map_dir, "pointcloud_map.pcd"), extra)
+    n, tiles = point_cloud(m, c, os.path.join(map_dir, "pointcloud_map.pcd"), extra,
+                           course.get("name", "course"))
     projector(frame, map_dir)
-    return {"lanelets_along": along, "lanelets_back": back, "pcd_points": n}
+    return {"lanelets_along": along, "lanelets_back": back, "pcd_points": n, "pcd_tiles": tiles}

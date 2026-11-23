@@ -1,4 +1,5 @@
-"""086 C5b: a course's road mesh, and the road layer's tiles, against its record.
+"""086 C5b, C5d: a course's road mesh, the road layer's tiles and Autoware's maps, against its
+record.
 
     python3 -m scensim_isaac_world.course.check <map dir> [--layer] [--json out.json]
 
@@ -17,6 +18,11 @@ split from the first corner to the third, as PhysX's cooking and the renderer sp
   map's road detail, no roughness) against the section's height within `LAYER_TOL` m (C5a's
   check), a tile cell and a half from a lip's face and from the paved edge, where the record's
   backslope back to the ground begins (a kink a tile's cell rounds by up to 7 mm).
+
+- Autoware's maps (086 C5d), when the map has them: every lanelet bound node's `ele`, and the
+  point midway between each two consecutive nodes of a bound, within `HEIGHT_TOL` m of the
+  road mesh there; the point cloud's count the build's, and a divided cloud's tiles each in
+  its cell, the metadata naming every tile.
 
 The same grid, given to Isaac's scene queries, is `isaac_check.py`'s (the GPU half).
 """
@@ -194,6 +200,87 @@ def check_layer(work, section, c, m):
     return out
 
 
+def osm_bounds(path):
+    """The Lanelet2 map's bound linestrings: a list of (n, 3) arrays of each way's nodes'
+    local_x, local_y and ele, in order (every way of the course's map is a bound)."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(path).getroot()
+    nodes = {}
+    for n in root.iter("node"):
+        t = {k.get("k"): k.get("v") for k in n.iter("tag")}
+        nodes[n.get("id")] = (float(t["local_x"]), float(t["local_y"]), float(t["ele"]))
+    return [np.array([nodes[r.get("ref")] for r in w.iter("nd")]) for w in root.iter("way")]
+
+
+def check_lanelets(map_dir, c, m, section=None):
+    """086 C5d: each lanelet bound node's `ele`, and the point midway between each two
+    consecutive nodes of a bound (linear, as Lanelet2 reads it), against the road mesh's height
+    there, within HEIGHT_TOL. A bound along a lip runs on its top, where the face is a step (a
+    tenth of a millimetre in plan is the step's height): a point within FACE_SKIP of a face is
+    compared with the mesh FACE_SKIP m inside it, toward the centreline."""
+    from .. import road_detail as rd
+
+    half = float(m["half_width"])
+    cor = rd.Corridor(np.stack([c["x"], c["y"], c["z"]], 1))
+    out = {}
+    ways = osm_bounds(os.path.join(map_dir, "lanelet2_map.osm"))
+    nodes = np.unique(np.concatenate(ways), axis=0)
+    mids = np.concatenate([0.5 * (w[1:] + w[:-1]) for w in ways if len(w) > 1])
+    for name, p in (("nodes", nodes), ("midway", mids)):
+        u, v, _ = cor.uv(p[:, 0], p[:, 1])
+        on_face = face_band(section, u, v, FACE_SKIP) if section is not None else \
+            np.zeros(len(u), bool)
+        v = np.where(on_face, v - np.sign(v) * FACE_SKIP, v)
+        got = mesh_height(c, m["road_points"], m["road_faces"], u, v, half)
+        err = np.abs(p[:, 2] - got)
+        j = int(np.nanargmax(err))
+        out[name] = {"points": int(len(p)), "on_a_lip": int(on_face.sum()),
+                     "missing": int(np.isnan(got).sum()),
+                     "height_max_mm": round(float(np.nanmax(err)) * 1e3, 3),
+                     "worst_at": {"u": round(float(u[j]), 2), "v": round(float(v[j]), 3)}}
+    out["pass"] = all(out[k]["missing"] == 0 and out[k]["height_max_mm"] <= HEIGHT_TOL * 1e3
+                      for k in ("nodes", "midway"))
+    return out
+
+
+def check_cloud(map_dir):
+    """086 C5d: a divided cloud's tiles each inside their TILE m cell, the metadata naming
+    every tile and no other, and their points together the build's count (`course/maps.json`'s
+    `pcd_points`). One undivided file: its count."""
+    from . import maps
+
+    path = os.path.join(map_dir, "pointcloud_map.pcd")
+    want = None
+    info = os.path.join(map_dir, "course", "maps.json")
+    if os.path.exists(info):
+        want = json.load(open(info)).get("pcd_points")
+    if not os.path.isdir(path):
+        n = len(maps.read_pcd(path))
+        return {"divided": False, "points": n, "pass": want is None or n == want}
+    import yaml
+
+    meta = yaml.safe_load(open(os.path.join(map_dir, maps.METADATA)))
+    res = float(meta.pop("x_resolution"))
+    meta.pop("y_resolution")
+    files = sorted(f for f in os.listdir(path) if f.endswith(".pcd"))
+    problems = []
+    if sorted(meta) != files:
+        problems.append(f"metadata names {len(meta)} tiles, the directory holds {len(files)}")
+    n = 0
+    for f in files:
+        p = maps.read_pcd(os.path.join(path, f)).astype(np.float64)
+        n += len(p)
+        x0, y0 = meta.get(f, (np.nan, np.nan))
+        if not (np.all(p[:, 0] >= x0) and np.all(p[:, 0] < x0 + res)
+                and np.all(p[:, 1] >= y0) and np.all(p[:, 1] < y0 + res)):
+            problems.append(f"{f}: points outside its cell [{x0}, {y0}] + {res}")
+    if want is not None and n != want:
+        problems.append(f"the tiles hold {n} points, the build wrote {want}")
+    return {"divided": True, "tiles": len(files), "points": n, "problems": problems,
+            "pass": not problems}
+
+
 def run(map_dir, layer=False):
     from .. import road_detail as rd
     from . import record
@@ -203,6 +290,9 @@ def run(map_dir, layer=False):
     m = np.load(os.path.join(work, "meshes.npz"))
     section = rd.StationSection(record.load(work))
     out = {"mesh": check_mesh(c, m, section)}
+    if os.path.exists(os.path.join(map_dir, "lanelet2_map.osm")):  # Autoware's maps (C5d)
+        out["lanelets"] = check_lanelets(map_dir, c, m, section)
+        out["cloud"] = check_cloud(map_dir)
     if layer:
         out["layer"] = check_layer(work, section, c, m)
     out["pass"] = all(v["pass"] for v in out.values())
