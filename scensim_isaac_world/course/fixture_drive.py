@@ -76,12 +76,14 @@ def runup(speed):
 
 
 def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
-              colliders=True):
+              colliders=True, rocks_on_base=False):
     """The course's road on `layer` as world.py's _load_road loads a map's: the record's strips
     as zones, the road layer, the detail's collision tiles (issue 119; `colliders` False: none,
     as before it), and with rocks their stream on those tiles, then one physics step (issue
     039). `rocks`: "shoulder,runoff,ditch" cover put on every corridor, the carriageway's 0
-    (086 C6b; empty: the course's own)."""
+    (086 C6b; empty: the course's own). `rocks_on_base` (issue 122's test): no collision tiles
+    and the world's ground not filtered out for the rocks, so they rest on the base mesh as R4's
+    first slice had them."""
     from scensim_isaac_world import road_layer, rock_layer
 
     road_file = os.path.join(map_dir, "course", road_layer.FILE)
@@ -95,7 +97,23 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
                      for c in corridors]
     layer.add_record_zones(road_layer.strip_zones(corridors))
     layer.road = road_layer.RoadLayer(corridors, (0.0, 0.0, 0.0), apply_force)
-    if colliders or layer.road.rocks is not None:
+    if rocks_on_base:
+        class NoTiles(rock_layer.DetailColliders):
+            """The tiles' keys, which the rock stream streams by, with no collider made."""
+
+            def update(self, points):
+                d, ox, oy = self.layer.detail, self.layer.ox, self.layer.oy
+                want = {k for k in d.tiles_near([p[0] + ox for p in points],
+                                                [p[1] + oy for p in points],
+                                                rock_layer.COLLISION_REACH)
+                        if d.touches(*k) and d.ready(k)} if points else set()
+                self.coll = {k: None for k in want}
+
+            def remove(self):
+                self.coll = {}
+
+        layer.road_colliders = NoTiles(stage, layer.road)
+    elif colliders or layer.road.rocks is not None:
         layer.road_colliders = rock_layer.DetailColliders(stage, layer.road)
     if layer.road.rocks is not None:
         import yaml
@@ -103,7 +121,8 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
         with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
             ground = list(yaml.safe_load(f).get("ground_paths") or [])
         layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
-            stage, layer.road, physx, ground=road_layer.load_ground(road_file) or ground,
+            stage, layer.road, physx,
+            ground=() if rocks_on_base else (road_layer.load_ground(road_file) or ground),
             colliders=layer.road_colliders)
     world.step(render=False)
 
@@ -131,6 +150,8 @@ def main():
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles without rocks (as before issue 119)")
+    ap.add_argument("--rocks-on-base", action="store_true",
+                    help="issue 122's test: no collision tiles, the rocks on the base mesh")
     ap.add_argument("--fixtures", choices=("c6a", "c6b"), default="c6a",
                     help="the course's fixtures: C6a's cleats or C6b's rocks")
     ap.add_argument("--rocks", default="", help="shoulder,runoff,ditch rock cover put on every "
@@ -206,7 +227,7 @@ def main():
     smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
     layer = SurfaceLayer(stage, smap, apply_force=apply_force)
     load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
-              rocks=a.rocks, colliders=not a.no_colliders)
+              rocks=a.rocks, colliders=not a.no_colliders, rocks_on_base=a.rocks_on_base)
 
     (x0, y0), h0 = xy_at(10.0, LANE)
     pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
@@ -280,6 +301,7 @@ def main():
                 [round(float(np.linalg.norm(v)), 3) if v is not None else 0.0]
         return [len(rs.pos), prims, stream.awake()] + rock, found
     rows, report = [], {"fixtures": a.fixtures, "rocks": a.rocks,
+                        "rocks_on_base": a.rocks_on_base,
                         "colliders": layer.road_colliders is not None,
                         "ground_clearance": rig.ground_clearance,
                         "px_travel": params.travels()[0], "query": a.query,
