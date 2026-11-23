@@ -38,6 +38,7 @@ AFTER = 20.0
 START_SPEED_TOL = 0.1
 START_OFFSET_TOL = 0.05
 SETTLE_FRAMES = 40
+RAMP, RAMP_FAST = 2.5, 3.0  # m/s^2, the speed hold's target ramp to 10 and to 20 m/s
 OFFSET_STEP = 0.07  # m between cleat_10 at 20 m/s's start offsets (R0's question 1)
 # fixture -> (s where it starts, its length along the road), the course's `features:`
 FIXTURES = {"cleat_05": (100.0, 0.2), "cleat_10": (200.0, 0.2), "cleat_15": (300.0, 0.2),
@@ -203,10 +204,15 @@ def main():
                                    * math.sin(math.atan2(dy, dx) - yaw), math.hypot(dx, dy))
                 vel = state.velocity[0]
                 cmd.tire_angle = max(-params.max_steer_angle, min(params.max_steer_angle, steer))
-                cmd.velocity = speed
-                if abs(speed - vel) < 1.0:
+                # a ramped target with its rate fed forward, the integral only once on speed:
+                # a step to `speed` overshot by 0.1 m/s and was still settling at the check
+                ramp = RAMP if speed <= 10.0 else RAMP_FAST
+                vref = min(speed, ramp * t)
+                ff = ramp if vref < speed else 0.0
+                cmd.velocity = vref
+                if vref >= speed and abs(speed - vel) < 0.5:
                     err_sum = max(-5.0, min(5.0, err_sum + (speed - vel) * FRAME))
-                cmd.acceleration = max(-3.0, min(3.0, 1.5 * (speed - vel) + 0.5 * err_sum))
+                cmd.acceleration = max(-3.0, min(3.0, ff + 1.5 * (vref - vel) + 0.5 * err_sum))
                 for _ in range(SUB):
                     physx_step(cmd)
                     t += dt
