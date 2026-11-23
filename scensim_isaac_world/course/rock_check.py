@@ -211,6 +211,7 @@ def judge(meta, by, map_dir=None):
             m, items = loose(rs, info, px)
         else:
             m, items = boulder(rs, info, dt, px)
+        items = {k: bool(v) for k, v in items.items()}
         r.update(m, items=items, rocks=rocks_seen(rs),
                  verdict="passed" if all(items.values()) else "failed")
         ok = ok and r["verdict"] == "passed"
@@ -219,6 +220,7 @@ def judge(meta, by, map_dir=None):
            "cases": res}
     if map_dir:
         p, items = placement(map_dir)
+        items = {k: bool(v) for k, v in items.items()}
         out["placement"] = dict(p, items=items,
                                 verdict="passed" if all(items.values()) else "failed")
         ok = ok and out["placement"]["verdict"] == "passed"
