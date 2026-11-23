@@ -516,7 +516,7 @@ def place(detail, i, j, zones=None):
                         sink = max(sink, rock.height - cz.carriageway_protrude)
                 # a loose rock rests on the surface (sunk into the collision tile it would be
                 # thrown out of it when it wakes); a held one is sunk
-                z = float(c.base_z(u)[0]) + h - rock.verts[:, 2].min() \
+                z = float(c.surface_base(u, v)[0]) + h - rock.verts[:, 2].min() \
                     - (0.0 if loose else sink)
                 out.append((rock, np.array([x, y, z]), yaw, loose))
     return out

@@ -151,6 +151,7 @@ class SurfaceLayer:
         self.bars = roll_bars.RollBars(apply_force)
         self.road_meshes = None
         self.road_rocks = None  # rock_layer.RockStream: the road's rocks' prims (R4)
+        self.road_colliders = None  # rock_layer.DetailColliders: the detail's tiles (issue 119)
         self.mu = {}  # (vehicle path, wheel) -> the friction the surface gives, before the road's
         self.near = []  # the egos' positions at the last place, for the road's meshes
         self.near_pose = []  # and their (x, y, yaw), for the road's rocks
@@ -531,6 +532,8 @@ class SurfaceLayer:
         out = {}
         if self.road_meshes is not None:
             self.road_meshes.update(self.near)
+        if self.road_colliders is not None:  # before the rocks, which rest on them
+            self.road_colliders.update(self.near_pose)
         if self.road_rocks is not None:
             self.road_rocks.update(self.near_pose)
         wheels = list(self.soil_xy.values())
@@ -551,6 +554,8 @@ class SurfaceLayer:
             self.road_meshes.remove()
         if self.road_rocks is not None:
             self.road_rocks.remove()
+        if self.road_colliders is not None:
+            self.road_colliders.remove()
         if self.road is not None:
             self.road.close()
 

@@ -72,13 +72,109 @@ ROOT = "/World/RoadRocks"
 COLL_ROOT = "/World/RoadCollision"
 
 
+class DetailColliders:
+    """The detail's collision tiles (issue 119: every road layer's, rocks or not): a triangle
+    mesh at COLLISION_STEP of each tile within COLLISION_REACH of a vehicle, its heights the
+    true surface (`Detail.surface_tile`, issue 120), in the `roadDetail` group, which filters
+    out the wheels' ground query (`groundQuery`): the wheels never hit a tile (their road is
+    the base under them and our contact's detail, R5), the chassis, its skid plate and the
+    rocks do. Once a frame, `update`, before the rocks'. Vertical faces are ramps one
+    COLLISION_STEP sample wide (10 cm): the limit of what the underbody meets of a cleat's or a
+    pothole's edge."""
+
+    def __init__(self, stage, layer, groups="/World/vehicleCollisionGroups"):
+        from pxr import UsdPhysics, Vt
+
+        from aib.isaac.vehicle import ensure_vehicle_scene
+
+        ensure_vehicle_scene(stage)  # the vehicles' groups first (issue 039)
+        self.stage, self.layer = stage, layer
+        self.group = f"{groups}/roadDetail"
+        UsdPhysics.CollisionGroup.Define(stage, self.group).CreateFilteredGroupsRel().AddTarget(
+            f"{groups}/groundQuery")
+        UsdPhysics.CollisionGroup.Get(stage, self.group).GetCollidersCollectionAPI() \
+            .CreateIncludesRel()
+        d = layer.detail
+        n = self.n_c = d.n // COLLISION_STEP
+        a = (np.arange(n)[None, :] + (n + 1) * np.arange(n)[:, None]).ravel()
+        self.coll_idx = Vt.IntArray.FromNumpy(
+            np.stack([a, a + 1, a + n + 2, a + n + 1], axis=1).ravel().astype(np.int32))
+        self.coll_cnt = Vt.IntArray.FromNumpy(np.full(n * n, 4, np.int32))
+        self.coll = {}  # tile -> prim path
+        self.coll_ms = []
+        self.serial = 0
+        self.adds, self.drops = set(), set()
+
+    def update(self, points):
+        """Once a frame: `points` the vehicles' (x, y, ...) in the world."""
+        from pxr import Sdf, UsdGeom, UsdPhysics
+
+        d, ox, oy = self.layer.detail, self.layer.ox, self.layer.oy
+        xs = [p[0] + ox for p in points]
+        ys = [p[1] + oy for p in points]
+        want = {k for k in d.tiles_near(xs, ys, COLLISION_REACH)
+                if d.touches(*k) and d.ready(k)} if points else set()
+        for k in [k for k in self.coll if k not in want]:
+            path = self.coll.pop(k)
+            self.stage.RemovePrim(path)
+            self.drops.add(path)
+            self.adds.discard(path)
+        for k in want - set(self.coll):
+            t0 = time.perf_counter()
+            i, j = k
+            h = d.surface_tile(i, j)[::COLLISION_STEP, ::COLLISION_STEP]
+            s = d.spacing * COLLISION_STEP
+            gx, gy = np.meshgrid(i * d.tile + np.arange(self.n_c + 1) * s - ox,
+                                 j * d.tile + np.arange(self.n_c + 1) * s - oy)
+            # a path never used before: a collider made again at a removed one's path makes
+            # omni.physx take it for one in two collision groups (issue 034)
+            self.serial += 1
+            path = f"{COLL_ROOT}/t_{i}_{j}_{self.serial}".replace("-", "m")
+            m = _mesh(self.stage, path, np.stack([gx, gy, h], axis=-1).reshape(-1, 3),
+                      self.coll_idx, self.coll_cnt, "none")
+            m.CreateVisibilityAttr(UsdGeom.Tokens.invisible)  # MeshStream's is the render
+            self.adds.add(path)
+            self.coll[k] = path
+            self.coll_ms.append((time.perf_counter() - t0) * 1e3)
+        if self.adds or self.drops:  # one edit of the group's includes a frame (issue 032)
+            rel = UsdPhysics.CollisionGroup.Get(self.stage, self.group) \
+                .GetCollidersCollectionAPI().GetIncludesRel()
+            keep = [str(t) for t in rel.GetTargets() if str(t) not in self.drops]
+            rel.SetTargets([Sdf.Path(t) for t in keep + sorted(self.adds - set(keep))])
+            self.adds, self.drops = set(), set()
+
+    def remove(self):
+        from pxr import UsdPhysics
+
+        for path in self.coll.values():
+            self.stage.RemovePrim(path)
+        self.coll.clear()
+        UsdPhysics.CollisionGroup.Get(self.stage, self.group).GetCollidersCollectionAPI() \
+            .GetIncludesRel().SetTargets([])
+        self.adds, self.drops = set(), set()
+
+
+def _mesh(stage, path, pts, idx, cnt, collision):
+    from pxr import UsdGeom, UsdPhysics, Vt
+
+    m = UsdGeom.Mesh.Define(stage, path)
+    m.CreatePointsAttr(Vt.Vec3fArray.FromNumpy(pts.astype(np.float32)))
+    m.CreateFaceVertexIndicesAttr(idx)
+    m.CreateFaceVertexCountsAttr(cnt)
+    UsdPhysics.CollisionAPI.Apply(m.GetPrim())
+    UsdPhysics.MeshCollisionAPI.Apply(m.GetPrim()).CreateApproximationAttr(collision)
+    return m
+
+
 class RockStream:
     def __init__(self, stage, layer, physx, ground=(), groups="/World/vehicleCollisionGroups",
-                 prewarm=True):
+                 prewarm=True, colliders=None):
         """`ground`: the world's own road ground (the base's prims, `road_detail.yaml`'s), which
         the rocks then do not collide with: a loose rock rests on the collision tiles, the
-        true surface, not on the base above a rut or a crowned road's sides."""
-        from pxr import Sdf, UsdGeom, UsdPhysics, Vt
+        true surface, not on the base above a rut or a crowned road's sides. `colliders`: the
+        road layer's DetailColliders (issue 119), which the world updates before the rocks;
+        None: the stream makes and updates its own."""
+        from pxr import Sdf, UsdGeom, UsdPhysics
 
         self.stage, self.layer, self.physx = stage, layer, physx
         # The vehicles' own groups first (issue 039): aib makes chassis and groundQuery only
@@ -86,13 +182,16 @@ class RockStream:
         from aib.isaac.vehicle import ensure_vehicle_scene
 
         ensure_vehicle_scene(stage)
-        self.rock_g, self.detail_g = f"{groups}/rocks", f"{groups}/roadDetail"
+        self.rock_g = f"{groups}/rocks"
+        self.own_colliders = colliders is None
+        self.colliders = DetailColliders(stage, layer, groups) if self.own_colliders \
+            else colliders
         # a tile's static rocks, as the rocks are but a group of their own: one edited each tile
         # the window moves is a change of its whole includes to omni.physx, which with the
         # prewarmed pool in it took 100 ms of the next step
         self.static_g = f"{groups}/rockTiles"
         base_g = f"{groups}/roadBase"
-        for g in (self.rock_g, self.static_g, self.detail_g):
+        for g in (self.rock_g, self.static_g):
             UsdPhysics.CollisionGroup.Define(stage, g).CreateFilteredGroupsRel().AddTarget(
                 f"{groups}/groundQuery")
             UsdPhysics.CollisionGroup.Get(stage, g).GetCollidersCollectionAPI() \
@@ -107,14 +206,6 @@ class RockStream:
         mat.CreateStaticFrictionAttr(0.7)  # rock on gravel and on steel, about 0.6-0.8
         mat.CreateDynamicFrictionAttr(0.6)
         mat.CreateRestitutionAttr(0.1)
-        d = layer.detail
-        self.n_c = d.n // COLLISION_STEP
-        a = (np.arange(self.n_c)[None, :] + (self.n_c + 1) * np.arange(self.n_c)[:, None]).ravel()
-        self.coll_idx = Vt.IntArray.FromNumpy(
-            np.stack([a, a + 1, a + self.n_c + 2, a + self.n_c + 1], axis=1).ravel()
-            .astype(np.int32))
-        self.coll_cnt = Vt.IntArray.FromNumpy(np.full(self.n_c * self.n_c, 4, np.int32))
-        self.coll = {}  # tile -> prim path
         self.loaded = {}  # tile -> its rocks' indices in layer.rocks
         self.win = {}  # tile -> its static rocks' prim path (or None)
         self.paths, self.dyn, self.mass = [], [], []  # per rock
@@ -132,7 +223,7 @@ class RockStream:
         self.serial = 0
         self.made, self.reused, self.prewarmed = 0, 0, 0
         self.reserved, self.reserved_for, self.prewarm_ms = {}, 0, []  # reserve()'s
-        self.coll_ms, self.prim_ms = [], []
+        self.prim_ms = []
         if prewarm:
             self.prewarm()
 
@@ -160,49 +251,25 @@ class RockStream:
             rel.SetTargets([Sdf.Path(t) for t in keep + sorted(adds - set(keep))])
         self.pending.clear()
 
-    def _mesh(self, path, pts, idx, cnt, collision):
-        from pxr import UsdGeom, UsdPhysics, Vt
+    @property
+    def coll(self):
+        return self.colliders.coll
 
-        m = UsdGeom.Mesh.Define(self.stage, path)
-        m.CreatePointsAttr(Vt.Vec3fArray.FromNumpy(pts.astype(np.float32)))
-        m.CreateFaceVertexIndicesAttr(idx)
-        m.CreateFaceVertexCountsAttr(cnt)
-        UsdPhysics.CollisionAPI.Apply(m.GetPrim())
-        UsdPhysics.MeshCollisionAPI.Apply(m.GetPrim()).CreateApproximationAttr(collision)
-        return m
+    @property
+    def coll_ms(self):
+        return self.colliders.coll_ms
+
+    def _mesh(self, path, pts, idx, cnt, collision):
+        return _mesh(self.stage, path, pts, idx, cnt, collision)
 
     def update(self, points):
         """Once a frame: `points` the vehicles' (x, y, yaw[, speed m/s[, half tread, half tire
         width, ground clearance, m]]) in the world, in the same order every frame."""
-        d, ox, oy = self.layer.detail, self.layer.ox, self.layer.oy
+        ox, oy = self.layer.ox, self.layer.oy
         xs = [p[0] + ox for p in points]
         ys = [p[1] + oy for p in points]
-        # collision tiles
-        want = {k for k in d.tiles_near(xs, ys, COLLISION_REACH)
-                if d.touches(*k) and d.ready(k)} if points else set()
-        for k in [k for k in self.coll if k not in want]:
-            path = self.coll.pop(k)
-            self.stage.RemovePrim(path)
-            self._group(self.detail_g, path, False)
-        for k in want - set(self.coll):
-            t0 = time.perf_counter()
-            from pxr import UsdGeom
-
-            i, j = k
-            h = d.surface_tile(i, j)[::COLLISION_STEP, ::COLLISION_STEP]
-            s = d.spacing * COLLISION_STEP
-            gx, gy = np.meshgrid(i * d.tile + np.arange(self.n_c + 1) * s - ox,
-                                 j * d.tile + np.arange(self.n_c + 1) * s - oy)
-            # a path never used before: a collider made again at a removed one's path makes
-            # omni.physx take it for one in two collision groups (issue 034)
-            self.serial += 1
-            path = f"{COLL_ROOT}/t_{i}_{j}_{self.serial}".replace("-", "m")
-            m = self._mesh(path, np.stack([gx, gy, h], axis=-1).reshape(-1, 3), self.coll_idx,
-                           self.coll_cnt, "none")
-            m.CreateVisibilityAttr(UsdGeom.Tokens.invisible)  # MeshStream's is the render
-            self._group(self.detail_g, path, True)
-            self.coll[k] = path
-            self.coll_ms.append((time.perf_counter() - t0) * 1e3)
+        if self.own_colliders:  # else the world's, updated before this (issue 119)
+            self.colliders.update(points)
         self._stream_rocks(xs, ys, points)
         self._flush_groups()
         self._activate(points)
@@ -528,18 +595,19 @@ class RockStream:
         return sc_all
 
     def remove(self):
-        for path in list(self.coll.values()) + [p for p in self.paths if p] + \
+        for path in [p for p in self.paths if p] + \
                 [p for p in self.win.values() if p] + [p for v in self.pool.values() for p in v]:
             self.stage.RemovePrim(path)
+        if self.own_colliders:
+            self.colliders.remove()
         self.pool.clear()
-        self.coll.clear()
         self.win.clear()
         self.paths = [None] * len(self.paths)
         self.active.clear()
         self.settling.clear()
         from pxr import UsdPhysics
 
-        for g in (self.rock_g, self.static_g, self.detail_g):  # no group names a prim gone
+        for g in (self.rock_g, self.static_g):  # no group names a prim gone
             UsdPhysics.CollisionGroup.Get(self.stage, g).GetCollidersCollectionAPI() \
                 .GetIncludesRel().SetTargets([])
         self.pending.clear()

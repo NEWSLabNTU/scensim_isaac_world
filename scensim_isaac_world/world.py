@@ -455,21 +455,24 @@ class IsaacWorld(WorldBase):
         layer.add_record_zones(road_layer.strip_zones(corridors))
         layer.road = road_layer.RoadLayer(corridors, origin, self._apply_force)
         layer.road_meshes = road_layer.MeshStream(self.stage, layer.road)
-        if layer.road.rocks is not None:  # 066 R4: the corridors' rocks, streamed
-            from . import rock_layer
+        from . import rock_layer
 
+        # The detail's collision tiles, with or without rocks (issue 119): the true surface the
+        # chassis and its skid plate meet, and where the rocks rest. Ground for the contacts,
+        # as the world's own road is, not the static world a scenario fails on hitting (issue
+        # 033). The wheels' ground query does not see them (R5's contact is their detail).
+        layer.road_colliders = rock_layer.DetailColliders(self.stage, layer.road)
+        self.ground = [*self.ground, rock_layer.COLL_ROOT]
+        self.ground_cache.clear()
+        if layer.road.rocks is not None:  # 066 R4: the corridors' rocks, streamed
             layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
                 self.stage, layer.road, self.physx,
-                ground=road_layer.load_ground(path) or list(self.ground))
-            # The road's collision tiles are its surface, where the rocks rest and the
-            # underbody may scrape: ground for the contacts, as the world's own road is, not
-            # the static world a scenario fails on hitting (issue 033). Rocks stay contacts.
-            self.ground = [*self.ground, rock_layer.COLL_ROOT]
-            self.ground_cache.clear()
-            # One physics step now, so PhysX takes in the rock pool's parked prims (about a
-            # thousand, one stage edit) before the first ego: made in the same batch, the ego
-            # sometimes got no body (issue 039; 2 of 12 runs, 0 of 8 with this step).
-            self.world.step(render=False)
+                ground=road_layer.load_ground(path) or list(self.ground),
+                colliders=layer.road_colliders)  # rocks stay contacts
+        # One physics step now, so PhysX takes in the road's groups and the rock pool's parked
+        # prims (about a thousand, one stage edit) before the first ego: made in the same batch,
+        # the ego sometimes got no body (issue 039; 2 of 12 runs, 0 of 8 with this step).
+        self.world.step(render=False)
         log.info("road detail %s: %d corridor(s)%s; the egos' tire contact is the road layer's",
                  path, len(layer.road.detail.corridors),
                  ", with rocks" if layer.road.rocks is not None else "")

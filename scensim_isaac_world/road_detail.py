@@ -345,6 +345,17 @@ class Corridor:
         """The base road's height at u along the centreline, m (level across it)."""
         return np.interp(u, self.seg_u, self.z)
 
+    def surface_base(self, u, v):
+        """What the true surface stands on at (u, v), m: the base road's height, and on a
+        `section_in_base` corridor the record's section too, which the base mesh carries and
+        `features` leaves out (issue 120). The true surface is this plus the detail."""
+        z = self.base_z(u)
+        if self.section_in_base and self.stations is not None:
+            if getattr(self, "_record_section", None) is None:
+                self._record_section = StationSection(self.stations)
+            z = z + self._record_section.height_uv(u, v)
+        return z
+
     def uv(self, x, y):
         """Each point's (u, v) on the centreline: its nearest segment's (P,), and whether it lies
         within the corridor's reach."""
@@ -546,17 +557,18 @@ class Detail:
                 self.tiles.pop(next(iter(self.tiles)))
 
     def surface_tile(self, i, j):
-        """The tile's samples with the base road under them: what the render mesh shows (the
-        corridor's base_z where it reaches; 0 elsewhere, the world's own ground there)."""
+        """The tile's samples with the base road under them: what the render mesh shows and the
+        collision tiles are (the corridor's surface_base where it reaches, its section too on a
+        section_in_base corridor, issue 120; 0 elsewhere, the world's own ground there)."""
         n, d = self.n, self.spacing
         X, Y = np.meshgrid(i * self.tile + np.arange(n + 1) * d,
                            j * self.tile + np.arange(n + 1) * d)
         base = np.zeros(X.shape)
         for c in self.corridors:
-            if not c.z.any():
+            if not c.z.any() and not c.section_in_base:
                 continue
-            u, _, near = c.uv(X, Y)
-            base = np.where(near.reshape(X.shape), c.base_z(u).reshape(X.shape), base)
+            u, v, near = c.uv(X, Y)
+            base = np.where(near.reshape(X.shape), c.surface_base(u, v).reshape(X.shape), base)
         return base + self.tile_of(i, j)
 
     OUTSIDE, VERGE, ROAD = 0, 1, 2
