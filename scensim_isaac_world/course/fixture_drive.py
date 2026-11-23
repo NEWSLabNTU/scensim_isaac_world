@@ -76,7 +76,7 @@ def runup(speed):
 
 
 def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
-              colliders=True, rocks_on_base=False):
+              colliders=True, rocks_on_base=False, pool="on"):
     """The course's road on `layer` as world.py's _load_road loads a map's: the record's strips
     as zones, the road layer, the detail's collision tiles (issue 119; `colliders` False: none,
     as before it), and with rocks their stream on those tiles, then one physics step (issue
@@ -120,10 +120,19 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
 
         with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
             ground = list(yaml.safe_load(f).get("ground_paths") or [])
+        # issue 123's diagnosis: the stream's pool of parked rock prims as it is ("on"), none
+        # (every rock made live), or made with its group membership a physics step later
         layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
             stage, layer.road, physx,
             ground=() if rocks_on_base else (road_layer.load_ground(road_file) or ground),
-            colliders=layer.road_colliders)
+            colliders=layer.road_colliders, prewarm=pool == "on")
+        if pool == "late":
+            stream = layer.road_rocks
+            flush, stream._flush_groups = stream._flush_groups, (lambda: None)
+            stream.prewarm()
+            world.step(render=False)
+            stream._flush_groups = flush
+            stream._flush_groups()
     world.step(render=False)
 
 
@@ -153,6 +162,8 @@ def main():
     ap.add_argument("--trace-push", action="store_true",
                     help="issue 122: every rock push (reaction, limit, applied) and the case's "
                     "rock's own contacts, to push.csv")
+    ap.add_argument("--rock-pool", choices=("on", "off", "late"), default="on",
+                    help="issue 123: the parked-rock pool as it is, none, or its group a step late")
     ap.add_argument("--rocks-on-base", action="store_true",
                     help="issue 122's test: no collision tiles, the rocks on the base mesh")
     ap.add_argument("--fixtures", choices=("c6a", "c6b"), default="c6a",
@@ -230,7 +241,8 @@ def main():
     smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
     layer = SurfaceLayer(stage, smap, apply_force=apply_force)
     load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
-              rocks=a.rocks, colliders=not a.no_colliders, rocks_on_base=a.rocks_on_base)
+              rocks=a.rocks, colliders=not a.no_colliders, rocks_on_base=a.rocks_on_base,
+              pool=a.rock_pool)
 
     (x0, y0), h0 = xy_at(10.0, LANE)
     pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
@@ -238,7 +250,8 @@ def main():
                   rig.box_dims, pose, ground_clearance=rig.ground_clearance,
                   truth_settings=rig.component.get("truth"))
     if layer.road_rocks is not None:
-        layer.road_rocks.reserve(1)
+        if a.rock_pool == "on":
+            layer.road_rocks.reserve(1)
     state = State()
     # the skid plate's bottom (aib's: between the axles, clear of the wheels), sampled 5 x 3
     from aib.frames import qrot
@@ -375,7 +388,7 @@ def main():
                 [round(float(np.linalg.norm(v)), 3) if v is not None else 0.0]
         return [len(rs.pos), prims, stream.awake()] + rock, found
     rows, report = [], {"fixtures": a.fixtures, "rocks": a.rocks,
-                        "rocks_on_base": a.rocks_on_base,
+                        "rocks_on_base": a.rocks_on_base, "rock_pool": a.rock_pool,
                         "colliders": layer.road_colliders is not None,
                         "ground_clearance": rig.ground_clearance,
                         "px_travel": params.travels()[0], "query": a.query,
