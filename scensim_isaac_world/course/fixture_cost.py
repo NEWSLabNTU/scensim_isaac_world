@@ -4,10 +4,12 @@ query, and our contact's share (`RoadLayer.cost_ms`, summed over the frame's Phy
 
 The cars start 20 m apart, alternately in the left and the right lane (all driving +s), at
 s = 40 m, and hold 10 m/s over the cleats and the pothole (the same pursuit and speed hold as
-`fixture_drive`); FRAMES frames are timed once every car is at speed. Writes `cost.json`:
+`fixture_drive`); FRAMES frames are timed once every car is at speed. `--follow` drives along
+the course's centreline (`Line`) instead of the straight line from its first point to its last:
+a winding course (086 C6b's budget on Haruna). Writes `cost.json`:
 
     python -m scensim_isaac_world.course.fixture_cost --map <map dir> --out <dir>
-        [--query raycast|sweep] [--cars 1|2|4]
+        [--query raycast|sweep] [--cars 1|2|4] [--follow]
 """
 import argparse
 import dataclasses
@@ -30,6 +32,54 @@ GAP = 20.0
 START = 40.0
 
 
+class Line:
+    """A course's centreline (`centreline.npz`'s s, x, y, z) as the cars follow it: the point at
+    s and lateral offset v (left positive), its heading, and a position's s."""
+
+    def __init__(self, s, x, y, z):
+        self.s, self.x, self.y, self.z = (np.asarray(a, float) for a in (s, x, y, z))
+        h = np.arctan2(np.gradient(self.y), np.gradient(self.x))
+        self.c, self.sn = np.cos(h), np.sin(h)
+
+    def heading(self, s):
+        return math.atan2(np.interp(s, self.s, self.sn), np.interp(s, self.s, self.c))
+
+    def xy(self, s, v):
+        h = self.heading(s)
+        return np.array([np.interp(s, self.s, self.x) - v * math.sin(h),
+                         np.interp(s, self.s, self.y) + v * math.cos(h)])
+
+    def z_at(self, s):
+        return float(np.interp(s, self.s, self.z))
+
+    def s_of(self, p):
+        """The s of the centreline's point nearest p, refined along its heading."""
+        i = int(np.argmin((self.x - p[0]) ** 2 + (self.y - p[1]) ** 2))
+        return float(self.s[i] + (p[0] - self.x[i]) * self.c[i] + (p[1] - self.y[i]) * self.sn[i])
+
+
+class Straight:
+    """The straight line from a course's first point to its last (the fixture courses)."""
+
+    def __init__(self, x, y):
+        self.o = np.array([x[0], y[0]], float)
+        self.h = float(math.atan2(y[-1] - y[0], x[-1] - x[0]))
+        self.d = np.array([math.cos(self.h), math.sin(self.h)])
+        self.n = np.array([-math.sin(self.h), math.cos(self.h)])
+
+    def heading(self, s):
+        return self.h
+
+    def xy(self, s, v):
+        return self.o + s * self.d + v * self.n
+
+    def z_at(self, s):
+        return 0.0
+
+    def s_of(self, p):
+        return float((np.asarray(p[:2]) - self.o) @ self.d)
+
+
 def pct(xs, q):
     return float(np.percentile(np.asarray(xs), q)) if len(xs) else None
 
@@ -44,18 +94,15 @@ def main():
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles (as before issue 119)")
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
+    ap.add_argument("--follow", action="store_true",
+                    help="drive along the centreline, not the straight first-to-last line")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
     from scensim_isaac_world import road_layer, surfaces
 
     cl = np.load(os.path.join(a.map, "course", "centreline.npz"))
-    x0, y0 = float(cl["x"][0]), float(cl["y"][0])
-    h = float(math.atan2(cl["y"][-1] - y0, cl["x"][-1] - x0))
-    d, n = np.array([math.cos(h), math.sin(h)]), np.array([-math.sin(h), math.cos(h)])
-
-    def xy(s, v):
-        return np.array([x0, y0]) + s * d + v * n
+    line = Line(cl["s"], cl["x"], cl["y"], cl["z"]) if a.follow else Straight(cl["x"], cl["y"])
 
     from aib.rig import EgoConfig
 
@@ -105,8 +152,9 @@ def main():
         for k in range(a.cars):
             lane = LANE if k % 2 == 0 else -LANE
             s0 = START + GAP * (k // 2) + GAP / 2 * (k % 2)
-            p = xy(s0, lane)
-            pose = ((float(p[0]), float(p[1]), 0.6), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
+            p, h = line.xy(s0, lane), line.heading(s0)
+            pose = ((float(p[0]), float(p[1]), line.z_at(s0) + 0.6),
+                    (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
             veh = Vehicle(stage, f"/World/car{k}", params, rig.make_component(), rig.box_center,
                           rig.box_dims, pose, ground_clearance=rig.ground_clearance,
                           truth_settings=rig.component.get("truth"))
@@ -119,8 +167,8 @@ def main():
             for c in cars:
                 st, cmd = c["state"], c["cmd"]
                 pos = np.array(st.position[:2])
-                s_now = float((pos - np.array([x0, y0])) @ d)
-                tgt = xy(s_now + LOOKAHEAD, c["lane"])
+                s_now = line.s_of(pos)
+                tgt = line.xy(s_now + LOOKAHEAD, c["lane"])
                 yaw = quat_rpy(*st.quat)[2]
                 dx, dy = tgt - pos
                 steer = math.atan2(2 * params.wheel_base * math.sin(math.atan2(dy, dx) - yaw),
@@ -164,8 +212,8 @@ def main():
                "flush_ms_p95": round(pct(flush_ms, 95), 3),
                "tiles_mean": round(float(np.mean(tiles)), 1),
                "speeds": [round(c["state"].velocity[0], 2) for c in cars],
-               "s_end": [round(float((np.array(c["state"].position[:2])
-                                      - np.array([x0, y0])) @ d), 1) for c in cars]}
+               "follow": a.follow,
+               "s_end": [round(line.s_of(c["state"].position[:2]), 1) for c in cars]}
         print(f"fixture_cost: {json.dumps(out)}", flush=True)
         json.dump(out, open(os.path.join(a.out, "cost.json"), "w"), indent=1)
     except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
