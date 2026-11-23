@@ -58,6 +58,9 @@ log = logging.getLogger("scensim_isaac_world")
 
 # A step slower than this is logged with where the time went.
 SLOW_STEP_S = 0.5
+# 086 C6b's diagnostic: every this many steps, the step's split and the stage's render products
+# at INFO (0: off)
+STEP_SPLIT_EVERY = int(os.environ.get("SCENSIM_STEP_SPLIT_EVERY", "0") or 0)
 ENTITIES = "/World/entities"
 CHASE_CAMERA = "/World/chaseCamera"
 SUN = "/World/sun"
@@ -1392,12 +1395,18 @@ class IsaacWorld(WorldBase):
         touching = {}  # (handle, other, other path) -> impulse
         samples = []  # /scensim/wheels: (sim time, ego name, wheel rows), at most 20 Hz
         sample = self.wheels_topic and self.ego_ros is not None and bool(egos)
+        split = dict.fromkeys(("ego", "road", "physics", "render", "contacts"), 0.0)
         for s in range(substeps):
+            ta = time.perf_counter()
             for ego in egos:
                 ego.before_substep(dt)
+            tb = time.perf_counter()
             if self.surface is not None:
                 self.surface.place([ego.vehicle for ego in egos], dt)
-            self.world.step(render=render and s == substeps - 1)
+            tc = time.perf_counter()
+            rendering = render and s == substeps - 1
+            self.world.step(render=rendering)
+            td = time.perf_counter()
             if self.surface is not None:
                 self.surface.begin_step()
             for ego in egos:
@@ -1406,13 +1415,23 @@ class IsaacWorld(WorldBase):
                     self.surface.update(ego.vehicle, ego.state.velocity[0], dt)
             if self.surface is not None and self.surface.kinematic:
                 self.surface.roll_kinematic((s + 1) / substeps, dt, substeps * dt)
+            te = time.perf_counter()
             self._collect_contacts(touching, dt)
+            tf = time.perf_counter()
+            # the step's split (086 C6b's diagnostic): the render substep's world.step is
+            # physics and render together; the physics substeps' mean is its physics share
+            split["ego"] += tb - ta
+            split["road"] += tc - tb + te - td
+            split["render" if rendering else "physics"] += td - tc
+            split["contacts"] += tf - te
             if sample and self.wheels_every.due(sim_time + (s + 1) * dt):
                 samples += [(sim_time + (s + 1) * dt, ego.name,
                              wheel_topic.wheel_rows(ego.vehicle, self.surface)) for ego in egos]
+        tg = time.perf_counter()
         if self.surface is not None:
             self.surface.flush()  # the soil's new ruts, for the next frame
             self._sink_npcs()
+        split["flush"] = time.perf_counter() - tg
         if self.fresh:  # simulated once: PhysX has them now
             self.fresh.clear()
             self.tracked_view = None
@@ -1457,8 +1476,16 @@ class IsaacWorld(WorldBase):
         t3 = time.perf_counter()
         if t3 - t0 > SLOW_STEP_S:
             log.warning("slow step at sim time %.2f: %.0f ms (commands %.0f, physics and render "
-                        "%.0f, publishing %.0f)", end, 1e3 * (t3 - t0), 1e3 * (t1 - t0),
-                        1e3 * (t2 - t1), 1e3 * (t3 - t2))
+                        "%.0f, publishing %.0f; of which %s)", end, 1e3 * (t3 - t0),
+                        1e3 * (t1 - t0), 1e3 * (t2 - t1), 1e3 * (t3 - t2),
+                        ", ".join(f"{k} {1e3 * v:.0f}" for k, v in split.items()))
+        self.steps_split = getattr(self, "steps_split", 0) + 1
+        if STEP_SPLIT_EVERY and self.steps_split % STEP_SPLIT_EVERY == 0:
+            products = sum(1 for p in self.stage.Traverse() if p.GetTypeName() == "RenderProduct")
+            log.info("step split at sim time %.2f: %.1f ms (commands %.1f, physics and render "
+                     "%.1f, publishing %.1f; of which %s); render products %d", end,
+                     1e3 * (t3 - t0), 1e3 * (t1 - t0), 1e3 * (t2 - t1), 1e3 * (t3 - t2),
+                     ", ".join(f"{k} {1e3 * v:.1f}" for k, v in split.items()), products)
         contacts = [(h, o, path, impulse) for (h, o, path), impulse in touching.items()]
         return states, contacts
 
