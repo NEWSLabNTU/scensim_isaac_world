@@ -75,6 +75,35 @@ def runup(speed):
     return 60.0 if speed <= 12.0 else 95.0
 
 
+def base_ground(map_dir):
+    """The world's own road ground, `roadBase`'s members: road_detail.yaml's `ground`, else
+    world.yaml's `ground_paths` (as world.py's `_load_road`)."""
+    import yaml
+
+    from scensim_isaac_world import road_layer
+
+    g = road_layer.load_ground(os.path.join(map_dir, "course", road_layer.FILE))
+    if g:
+        return g
+    with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
+        return list(yaml.safe_load(f).get("ground_paths") or [])
+
+
+def groups_before_play(stage, map_dir):
+    """Issue 123: the road's groups made and `roadBase`'s members set before the simulation
+    starts. This harness adds the world's USD before play, so PhysX takes its ground in at the
+    first step; the filter holds only when the members are set before that step, which the world
+    server meets by adding its map's ground after play and setting them at the road's load."""
+    from pxr import Sdf, UsdPhysics
+
+    from aib.isaac.vehicle import GROUPS
+    from scensim_isaac_world import rock_layer
+
+    rock_layer.define_groups(stage)
+    UsdPhysics.CollisionGroup.Get(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
+        .GetIncludesRel().SetTargets([Sdf.Path(q) for q in base_ground(map_dir)])
+
+
 def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
               colliders=True, rocks_on_base=False, pool="on"):
     """The course's road on `layer` as world.py's _load_road loads a map's: the record's strips
@@ -116,15 +145,11 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
     elif colliders or layer.road.rocks is not None:
         layer.road_colliders = rock_layer.DetailColliders(stage, layer.road)
     if layer.road.rocks is not None:
-        import yaml
-
-        with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
-            ground = list(yaml.safe_load(f).get("ground_paths") or [])
         # issue 123's diagnosis: the stream's pool of parked rock prims as it is ("on"), none
         # (every rock made live), or made with its group membership a physics step later
         layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
             stage, layer.road, physx,
-            ground=() if rocks_on_base else (road_layer.load_ground(road_file) or ground),
+            ground=() if rocks_on_base else base_ground(map_dir),
             colliders=layer.road_colliders, prewarm=pool == "on")
         if pool == "late":
             stream = layer.road_rocks
@@ -165,10 +190,9 @@ def main():
     ap.add_argument("--server-order", action="store_true",
                     help="issue 123: the simulation started before the world's USD and the road, "
                     "as the world server loads a map")
-    ap.add_argument("--groups-early", action="store_true",
-                    help="issue 123: roadBase's members set before the simulation starts too")
     ap.add_argument("--groups-late", action="store_true",
-                    help="issue 123, as before its fix: the road's groups made at the road's load")
+                    help="a test switch (issue 123): the road's groups made at the road's load, "
+                    "after PhysX took in the world's ground, as before the fix")
     ap.add_argument("--rock-pool", choices=("on", "off", "late"), default="on",
                     help="issue 123: the parked-rock pool as it is, none, or its group a step late")
     ap.add_argument("--rocks-on-base", action="store_true",
@@ -228,7 +252,6 @@ def main():
 
     from aib.control import GEAR_DRIVE, Command, State
     from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
-    from scensim_isaac_world import rock_layer
     from scensim_isaac_world.surface_layer import SurfaceLayer
 
     dt = FRAME / SUB
@@ -243,19 +266,8 @@ def main():
     if not a.server_order:
         add_world()
     ensure_vehicle_scene(stage)
-    if not a.groups_late:  # as world.py: the road's groups before the simulation starts
-        rock_layer.define_groups(stage)
-    if a.groups_early:
-        # issue 123's test (iv): the world's ground in roadBase before the simulation starts too
-        import yaml
-        from pxr import Sdf, UsdPhysics
-
-        from aib.isaac.vehicle import GROUPS
-
-        with open(os.path.join(a.map, "isaac", "world.yaml")) as f:
-            gp = list(yaml.safe_load(f).get("ground_paths") or [])
-        UsdPhysics.CollisionGroup.Get(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
-            .GetIncludesRel().SetTargets([Sdf.Path(q) for q in gp])
+    if not a.groups_late:  # issue 123: the groups and roadBase's members before the ground
+        groups_before_play(stage, a.map)
     world.reset()
     world.play()
     if a.server_order:  # issue 123: as world.py, the simulation running before the map's USD
@@ -305,10 +317,15 @@ def main():
         return round(min(P[2] + qrot(q, p)[2] - road_z(P[0] + qrot(q, p)[0],
                                                        P[1] + qrot(q, p)[1]) for p in plate), 4)
 
+    contacts = [(), ()]  # this step's contact report: headers, data
+
     def physx_step(cmd):
         veh.apply(cmd, dt, state)
         layer.place([veh], dt)
         world.step(render=False)
+        contacts[:] = sim.get_contact_report()  # once a step: the self-check's and the trace's
+        if layer.road_rocks is not None:
+            layer.road_rocks.check_base(contacts[0], dt)
         layer.begin_step()
         veh.sample(physx, dt, state)
         layer.update(veh, state.velocity[0], dt)
@@ -381,7 +398,7 @@ def main():
                     filt = [str(t) for t in grp.GetFilteredGroupsRel().GetTargets()]
                     print(f"groups: {g.GetPath()} holds {has} filters {filt}", flush=True)
             return
-        headers, data = sim.get_contact_report()
+        headers, data = contacts
         fn = ft = 0.0
         per = {}  # the other collider -> its normal force, N
         for h in headers:
@@ -523,6 +540,8 @@ def main():
             wr = csv.writer(f)
             wr.writerow(header)
             wr.writerows(rows)
+        if layer.road_rocks is not None:  # issue 123's self-check: rocks on the base road
+            report["base_contacts"] = [list(h) for h in layer.road_rocks.base_hits]
         json.dump(report, open(os.path.join(a.out, "cases.json"), "w"), indent=1)
         print(f"fixture_drive: {len(rows)} steps, {len(report['cases'])} case(s) to {a.out}",
               flush=True)

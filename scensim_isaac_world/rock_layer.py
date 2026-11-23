@@ -72,6 +72,9 @@ ROOT = "/World/RoadRocks"
 COLL_ROOT = "/World/RoadCollision"
 
 
+BASE_CHECK_S = 1.0  # issue 123's self-check: each rock's first second awake
+
+
 def define_groups(stage, groups="/World/vehicleCollisionGroups"):
     """The road's collision groups, made before the simulation starts (issue 123: a group made
     while it runs is not applied to colliders PhysX already holds): `roadBase` (the world's
@@ -207,6 +210,11 @@ class RockStream:
         # prewarmed pool in it took 100 ms of the next step
         self.static_g = f"{groups}/rockTiles"
         base_g = f"{groups}/roadBase"
+        # issue 123's self-check: a rock touching the base within its first BASE_CHECK_S awake
+        self.base_paths = tuple(str(p) for p in ground)
+        self.base_check = {}  # rock prim path -> awake seconds left in its check
+        self.base_checked = set()  # rocks (indices) whose check has begun
+        self.base_hits = []  # (rock prim path, base collider path)
         if ground:  # the world's ground in roadBase, which rocks and rockTiles filter out
             UsdPhysics.CollisionGroup.Get(stage, base_g).GetCollidersCollectionAPI() \
                 .GetIncludesRel().SetTargets([Sdf.Path(p) for p in ground])
@@ -431,6 +439,8 @@ class RockStream:
         # out of an overlap (the surface's mm, a neighbour) at a walk, not PhysX's default
         # (a stone thrown at tens of m/s as it woke)
         prb.CreateMaxDepenetrationVelocityAttr(MAX_DEPENETRATION)
+        if self.base_paths:  # issue 123's self-check reads the rock's contacts
+            PhysxSchema.PhysxContactReportAPI.Apply(m.GetPrim()).CreateThresholdAttr(0.0)
         self._group(self.rock_g, path, True)
         return path
 
@@ -480,6 +490,43 @@ class RockStream:
                  self.prewarm_ms[-1], self.prewarmed)
         return n
 
+    def check_base(self, headers, dt):
+        """Issue 123's self-check, once a physics step with that step's contact report headers
+        (read once by the caller): a rock touching the world's own ground (`roadBase`) within
+        its first BASE_CHECK_S awake is logged as an error. The filter holds only when
+        `roadBase`'s members are set before the first physics step after the ground enters
+        the stage; set after it, PhysX keeps the pair (`fixture_drive`'s order before the
+        fix). Returns the hits found in this step."""
+        if not self.base_check:
+            return []
+        from pxr import PhysicsSchemaTools
+
+        def to_path(i):
+            return str(PhysicsSchemaTools.intToSdfPath(i))
+
+        hits = []
+        for h in headers:
+            if str(h.type).endswith("CONTACT_LOST"):
+                continue
+            a0, a1 = to_path(h.actor0), to_path(h.actor1)
+            for mine, coll in ((a0, h.collider1), (a1, h.collider0)):
+                if mine not in self.base_check:
+                    continue
+                other = to_path(coll)
+                if any(other == p or other.startswith(p + "/") for p in self.base_paths):
+                    del self.base_check[mine]
+                    hits.append((mine, other))
+                    log.error("issue 123: rock %s touches the base road %s within its first "
+                              "%.0f s awake: roadBase's members were set after PhysX took in "
+                              "that ground; set them before the first physics step after the "
+                              "ground enters the stage", mine, other, BASE_CHECK_S)
+        for p in list(self.base_check):
+            self.base_check[p] -= dt
+            if self.base_check[p] <= 0:
+                del self.base_check[p]
+        self.base_hits += hits
+        return hits
+
     # --- awake and asleep --------------------------------------------------------------------
 
     def _sleep(self, i, on):
@@ -522,6 +569,9 @@ class RockStream:
             if n and not a:
                 self._sleep(i, False)
                 self.active[i] = True
+                if self.base_paths and i not in self.base_checked:
+                    self.base_checked.add(i)
+                    self.base_check[self.paths[i]] = BASE_CHECK_S
             elif n:
                 self.settling.pop(i, None)
             elif a and self._settled(i):

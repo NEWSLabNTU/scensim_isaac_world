@@ -1406,7 +1406,7 @@ class IsaacWorld(WorldBase):
                     self.surface.update(ego.vehicle, ego.state.velocity[0], dt)
             if self.surface is not None and self.surface.kinematic:
                 self.surface.roll_kinematic((s + 1) / substeps, dt, substeps * dt)
-            self._collect_contacts(touching)
+            self._collect_contacts(touching, dt)
             if sample and self.wheels_every.due(sim_time + (s + 1) * dt):
                 samples += [(sim_time + (s + 1) * dt, ego.name,
                              wheel_topic.wheel_rows(ego.vehicle, self.surface)) for ego in egos]
@@ -1520,8 +1520,11 @@ class IsaacWorld(WorldBase):
             self.ground_cache[path] = g
         return g
 
-    def _collect_contacts(self, touching):
+    def _collect_contacts(self, touching, dt):
         headers, data = self.sim.get_contact_report()
+        rocks = self.surface.road_rocks if self.surface is not None else None
+        if rocks is not None:  # issue 123's self-check, on the same report
+            rocks.check_base(headers, dt)
         for header in headers:
             if str(header.type).endswith("CONTACT_LOST"):
                 continue

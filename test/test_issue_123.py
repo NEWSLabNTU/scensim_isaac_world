@@ -125,5 +125,58 @@ class Pool(unittest.TestCase):
         self.assertEqual(len(s.pending[s.rock_g][0]), n)
 
 
+class BaseCheck(unittest.TestCase):
+    """The load-time self-check: a rock on the base road within its first second awake."""
+
+    def stream(self):
+        s = rock_layer.RockStream.__new__(rock_layer.RockStream)
+        s.base_paths = ("/World/env/Road",)
+        s.base_check, s.base_checked, s.base_hits = {}, set(), []
+        return s
+
+    def header(self, a0, a1, c0, c1, lost=False):
+        return SimpleNamespace(type="CONTACT_LOST" if lost else "CONTACT_FOUND", actor0=a0,
+                               actor1=a1, collider0=c0, collider1=c1)
+
+    def run_check(self, s, headers, dt=1 / 60):
+        pxr = mock.MagicMock()
+        pxr.PhysicsSchemaTools.intToSdfPath.side_effect = str  # the stand-in: paths as ints
+        with mock.patch.dict(sys.modules, {"pxr": pxr}):
+            return s.check_base(headers, dt)
+
+    def test_a_rock_on_the_base_is_an_error_once(self):
+        s = self.stream()
+        s.base_check["/World/RoadRocks/r1"] = 1.0
+        h = self.header("/World/RoadRocks/r1", "/World/env/Road", "/World/RoadRocks/r1",
+                        "/World/env/Road/mesh_3")
+        with self.assertLogs("scensim_isaac_world", "ERROR") as cm:
+            hits = self.run_check(s, [h])
+        self.assertEqual(hits, [("/World/RoadRocks/r1", "/World/env/Road/mesh_3")])
+        self.assertIn("issue 123", cm.output[0])
+        self.assertEqual(self.run_check(s, [h]), [])  # checked once, not every step
+        self.assertEqual(len(s.base_hits), 1)
+
+    def test_its_tile_and_a_lost_contact_are_not(self):
+        s = self.stream()
+        s.base_check["/World/RoadRocks/r1"] = 1.0
+        tile = self.header("/World/RoadCollision/t_1_0_0", "/World/RoadRocks/r1",
+                           "/World/RoadCollision/t_1_0_0", "/World/RoadRocks/r1")
+        lost = self.header("/World/RoadRocks/r1", "/World/env/Road", "/World/RoadRocks/r1",
+                           "/World/env/Road", lost=True)
+        roadside = self.header("/World/RoadRocks/r1", "/World/env/RoadSigns",
+                               "/World/RoadRocks/r1", "/World/env/RoadSigns/s")  # not a child
+        self.assertEqual(self.run_check(s, [tile, lost, roadside]), [])
+
+    def test_the_check_ends_after_a_second_awake(self):
+        s = self.stream()
+        s.base_check["/World/RoadRocks/r1"] = 1.0
+        for _ in range(60):
+            self.run_check(s, [])
+        self.assertEqual(s.base_check, {})
+        h = self.header("/World/RoadRocks/r1", "/World/env/Road", "/World/RoadRocks/r1",
+                        "/World/env/Road")
+        self.assertEqual(self.run_check(s, [h]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

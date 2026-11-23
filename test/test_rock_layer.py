@@ -58,6 +58,8 @@ class Wake(unittest.TestCase):
         s.tall = np.array([float(np.ptp(r.verts[:, 2])) for r in rocks])
         s.active, s.settling, s.prev = {}, {}, []
         s._sleep = lambda i, on: None
+        s.base_paths = ("/World/env/Road",)  # issue 123's self-check
+        s.base_check, s.base_checked = {}, set()
         return s
 
     def test_tracks_and_underbody(self):
@@ -70,6 +72,8 @@ class Wake(unittest.TestCase):
         s._activate([(0.0, 0.0, 0.0, 10.0, 0.79, 0.12, 0.138)])
         self.assertEqual([bool(s.active.get(i)) for i in range(7)],
                          [True, True, False, True, False, False, False])
+        # each rock woken begins its second of issue 123's self-check
+        self.assertEqual(set(s.base_check), {"/r0", "/r1", "/r3"})
 
     def test_the_tracks_follow_the_turn(self):
         small = rk.scaled(0, 0.04)
