@@ -503,6 +503,10 @@ class Detail:
         self.pending = {}  # tile -> its worker's future
         self.n = int(round(tile / spacing))
         self.tiles = {}  # (i, j) -> (n + 1, n + 1) heights, rows along y
+        # (i, j) -> (base, zones): `surface_tile`'s base road and `zones_tile`, made with the tile
+        # from the same uv (issue 134), evicted with it: float64 and int8, 0.93 MB a tile at n 320
+        self.looks = {}
+        self.look_fallbacks = 0  # a tile's look made on the caller's thread (issue 134)
         self.max_tiles = max_tiles
         self.fields = {}  # (corridor, i, j) -> its roughness field on 2 tile
         self.amps = {}  # corridor -> its spectrum's amplitudes on the field's grid
@@ -539,7 +543,33 @@ class Detail:
             self.fields[key] = f
         return f
 
-    def _make(self, i, j):
+    def _grid(self, i, j):
+        n, d = self.n, self.spacing
+        return np.meshgrid(i * self.tile + np.arange(n + 1) * d,
+                           j * self.tile + np.arange(n + 1) * d)
+
+    def _uvs(self, i, j):
+        """Each corridor's (u, v, near) over tile (i, j)'s samples: one projection a tile, shared
+        by its heights, base road and zones (issue 134)."""
+        X, Y = self._grid(i, j)
+        return [c.uv(X, Y) for c in self.corridors]
+
+    def _look(self, i, j, uvs):
+        """The tile's base road (`surface_tile` less the detail) and zones, from `uvs`."""
+        X, _ = self._grid(i, j)
+        base = np.zeros(X.shape)
+        zones = np.zeros(X.shape, dtype=np.int8)
+        for c, (u, v, near) in zip(self.corridors, uvs):
+            if c.z.any() or c.section_in_base:
+                base = np.where(near.reshape(X.shape), c.surface_base(u, v).reshape(X.shape),
+                                base)
+            U, V, N = u.reshape(X.shape), v.reshape(X.shape), near.reshape(X.shape)
+            road = N & (np.abs(V) <= c.section.edge(U, V))
+            zones = np.maximum(zones, np.where(road, self.ROAD, np.where(N, self.VERGE,
+                                                                         self.OUTSIDE)))
+        return base, zones
+
+    def _make(self, i, j, uvs=None):
         n, d = self.n, self.spacing
         xs = i * self.tile + np.arange(n + 1) * d
         ys = j * self.tile + np.arange(n + 1) * d
@@ -551,7 +581,7 @@ class Detail:
             u, v, near = c.uv(np.array([cx]), np.array([cy]))
             if v.size and abs(v[0]) > c.reach + self.tile:
                 continue
-            u, v, near = c.uv(X, Y)
+            u, v, near = uvs[ci] if uvs is not None else c.uv(X, Y)
             if not near.any():
                 continue
             u, v, near = u.reshape(X.shape), v.reshape(X.shape), near.reshape(X.shape)
@@ -572,25 +602,35 @@ class Detail:
             out += np.where(near, (h + r * fade) * c.weight(u), 0.0)
         return out
 
-    def _keep(self, key, t):
+    def _keep(self, key, t, look=None):
         with self.lock:
             self.tiles[key] = t
+            if look is not None:
+                self.looks[key] = look
             while len(self.tiles) > self.max_tiles:
-                self.tiles.pop(next(iter(self.tiles)))
+                old = next(iter(self.tiles))
+                self.tiles.pop(old)
+                self.looks.pop(old, None)
+
+    def look(self, i, j):
+        """(base, zones) of tile (i, j): the worker's, made with the tile; made here (and
+        counted, `look_fallbacks`) when the tile came without one."""
+        self.tile_of(i, j)
+        with self.lock:
+            look = self.looks.get((i, j))
+        if look is None:
+            self.look_fallbacks += 1
+            look = self._look(i, j, self._uvs(i, j))
+            with self.lock:
+                if (i, j) in self.tiles:
+                    self.looks[(i, j)] = look
+        return look
 
     def surface_tile(self, i, j):
         """The tile's samples with the base road under them: what the render mesh shows and the
         collision tiles are (the corridor's surface_base where it reaches, its section too on a
         section_in_base corridor, issue 120; 0 elsewhere, the world's own ground there)."""
-        n, d = self.n, self.spacing
-        X, Y = np.meshgrid(i * self.tile + np.arange(n + 1) * d,
-                           j * self.tile + np.arange(n + 1) * d)
-        base = np.zeros(X.shape)
-        for c in self.corridors:
-            if not c.z.any() and not c.section_in_base:
-                continue
-            u, v, near = c.uv(X, Y)
-            base = np.where(near.reshape(X.shape), c.surface_base(u, v).reshape(X.shape), base)
+        base, _ = self.look(i, j)
         return base + self.tile_of(i, j)
 
     OUTSIDE, VERGE, ROAD = 0, 1, 2
@@ -600,17 +640,7 @@ class Detail:
         carriageway or shoulder, VERGE over the rest of its section (foreslope, ditch,
         backslope), OUTSIDE beyond every corridor's reach, where the world's own ground is. The
         render mesh covers only the corridors, and dresses the road and the verge apart."""
-        n, d = self.n, self.spacing
-        X, Y = np.meshgrid(i * self.tile + np.arange(n + 1) * d,
-                           j * self.tile + np.arange(n + 1) * d)
-        out = np.zeros(X.shape, dtype=np.int8)
-        for c in self.corridors:
-            u, v, near = c.uv(X, Y)
-            u, v, near = u.reshape(X.shape), v.reshape(X.shape), near.reshape(X.shape)
-            road = near & (np.abs(v) <= c.section.edge(u, v))
-            out = np.maximum(out, np.where(road, self.ROAD, np.where(near, self.VERGE,
-                                                                     self.OUTSIDE)))
-        return out
+        return self.look(i, j)[1]
 
     def tile_of(self, i, j):
         with self.lock:
@@ -623,13 +653,13 @@ class Detail:
         t = None
         if job is not None:
             try:
-                t, _, extra = job.result()  # being made: wait for it
+                t, _, extra, look = job.result()  # being made: wait for it
             except Exception:  # the worker failed or is gone: make it here
                 t = None
         if t is None:
-            t, ms, extra = self._timed(i, j)
+            t, ms, extra, look = self._timed(i, j)
             self.made_ms.append(ms)
-        self._keep((i, j), t)
+        self._keep((i, j), t, look)
         if self.extras_name:
             with self.lock:
                 self.extras.setdefault((i, j), extra)
@@ -681,7 +711,9 @@ class Detail:
 
     def _timed(self, i, j):
         t0 = _now()
-        t = self._make(i, j)
+        uvs = self._uvs(i, j)
+        t = self._make(i, j, uvs)
+        look = self._look(i, j, uvs)
         extra = None
         if self.extras_name:
             if self._extras_fn is None:
@@ -689,9 +721,9 @@ class Detail:
 
                 mod, fn = self.extras_name.split(":")
                 self._extras_fn = getattr(importlib.import_module(mod), fn)
-            self._keep((i, j), t)  # the extras read the tile's heights
+            self._keep((i, j), t, look)  # the extras read the tile's heights
             extra = self._extras_fn(self, i, j)
-        return t, (_now() - t0) * 1e3, extra
+        return t, (_now() - t0) * 1e3, extra, look
 
     def extra(self, i, j):
         """The tile's extras, once made (None before)."""
@@ -701,9 +733,9 @@ class Detail:
     def _made(self, key, job):
         try:
             if not job.cancelled() and job.exception() is None:
-                t, ms, extra = job.result()
+                t, ms, extra, look = job.result()
                 self.made_ms.append(ms)
-                self._keep(key, t)
+                self._keep(key, t, look)
                 if self.extras_name:
                     with self.lock:
                         self.extras.setdefault(key, extra)
@@ -796,7 +828,7 @@ class TileProcess:
 
         while True:
             try:
-                key, t, ms, extra = pickle.load(self.proc.stdout)
+                key, t, ms, extra, look = pickle.load(self.proc.stdout)
             except Exception as e:  # the child is gone: every waiting tile fails
                 with self.lock:
                     jobs, self.jobs = list(self.jobs.values()), {}
@@ -806,7 +838,7 @@ class TileProcess:
             with self.lock:
                 job = self.jobs.pop(key, None)
             if job is not None:
-                job.set_result((t, ms, extra))
+                job.set_result((t, ms, extra, look))
 
     def shutdown(self, wait=False, cancel_futures=True):
         try:
@@ -821,7 +853,7 @@ class TileProcess:
 
 def _worker():
     """The child of TileProcess: (corridors, spacing, tile, extras), then (i, j) per tile, on
-    stdin; (key, heights, ms, extra) per tile on stdout. Ends at stdin's end."""
+    stdin; (key, heights, ms, extra, look) per tile on stdout. Ends at stdin's end."""
     import os
     import pickle
     import sys
@@ -836,8 +868,8 @@ def _worker():
             key = pickle.load(inp)
         except EOFError:
             return
-        t, ms, extra = d._timed(*key)
-        pickle.dump((key, t, ms, extra), out, protocol=pickle.HIGHEST_PROTOCOL)
+        t, ms, extra, look = d._timed(*key)
+        pickle.dump((key, t, ms, extra, look), out, protocol=pickle.HIGHEST_PROTOCOL)
         out.flush()
 
 

@@ -1482,10 +1482,15 @@ class IsaacWorld(WorldBase):
         self.steps_split = getattr(self, "steps_split", 0) + 1
         if STEP_SPLIT_EVERY and self.steps_split % STEP_SPLIT_EVERY == 0:
             products = sum(1 for p in self.stage.Traverse() if p.GetTypeName() == "RenderProduct")
+            road = getattr(self.surface, "road", None) if self.surface is not None else None
+            det = road.detail if road is not None else None
             log.info("step split at sim time %.2f: %.1f ms (commands %.1f, physics and render "
-                     "%.1f, publishing %.1f; of which %s); render products %d", end,
+                     "%.1f, publishing %.1f; of which %s); render products %d; road tiles: "
+                     "look fallbacks %s, waits over 1 ms %s", end,
                      1e3 * (t3 - t0), 1e3 * (t1 - t0), 1e3 * (t2 - t1), 1e3 * (t3 - t2),
-                     ", ".join(f"{k} {1e3 * v:.1f}" for k, v in split.items()), products)
+                     ", ".join(f"{k} {1e3 * v:.1f}" for k, v in split.items()), products,
+                     det.look_fallbacks if det is not None else "-",
+                     sum(1 for ms in det.stall_ms if ms > 1.0) if det is not None else "-")
         contacts = [(h, o, path, impulse) for (h, o, path), impulse in touching.items()]
         return states, contacts
 

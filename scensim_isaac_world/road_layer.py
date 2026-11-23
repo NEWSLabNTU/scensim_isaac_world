@@ -781,14 +781,17 @@ class MeshStream:
                                         [p[1] + self.layer.oy for p in points], self.reach)
                 if d.touches(*k) and d.ready(k)} if points else set()
         for key in [k for k in self.meshes if k not in want]:
-            self.stage.RemovePrim(self.meshes.pop(key))
+            path = self.meshes.pop(key)
+            if path is not None:
+                self.stage.RemovePrim(path)
         n, s, t = d.n, d.spacing, d.tile
         for key in want - set(self.meshes):
             t0 = time.perf_counter()
             h = d.surface_tile(*key)
             i, j = key
             quads, road = self.tile_faces(d.zones_tile(i, j))
-            if not len(quads):
+            if not len(quads):  # nothing of the road here: known, not looked at every frame
+                self.meshes[key] = None  # (issue 134: it cost two uv passes a frame)
                 continue
             gx, gy = np.meshgrid(i * t + np.arange(n + 1) * s - self.layer.ox,
                                  j * t + np.arange(n + 1) * s - self.layer.oy)
@@ -814,7 +817,7 @@ class MeshStream:
             self.ms.append((time.perf_counter() - t0) * 1e3)
 
     def remove(self):
-        for path in self.meshes.values():
+        for path in filter(None, self.meshes.values()):
             self.stage.RemovePrim(path)
         self.meshes.clear()
 
