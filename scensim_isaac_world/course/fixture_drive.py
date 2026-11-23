@@ -162,6 +162,8 @@ def main():
     ap.add_argument("--trace-push", action="store_true",
                     help="issue 122: every rock push (reaction, limit, applied) and the case's "
                     "rock's own contacts, to push.csv")
+    ap.add_argument("--groups-early", action="store_true",
+                    help="issue 123: roadBase and the rocks' groups made before the simulation starts")
     ap.add_argument("--rock-pool", choices=("on", "off", "late"), default="on",
                     help="issue 123: the parked-rock pool as it is, none, or its group a step late")
     ap.add_argument("--rocks-on-base", action="store_true",
@@ -229,6 +231,23 @@ def main():
     add_reference_to_stage(usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
                            prim_path="/World/env")
     ensure_vehicle_scene(stage)
+    if a.groups_early:
+        # issue 123's test (iv): the world's ground in roadBase and the rocks' groups filtering
+        # it, made before the simulation starts (the rock stream makes the same at the load)
+        import yaml
+        from pxr import Sdf, UsdPhysics
+
+        from aib.isaac.vehicle import GROUPS
+
+        with open(os.path.join(a.map, "isaac", "world.yaml")) as f:
+            gp = list(yaml.safe_load(f).get("ground_paths") or [])
+        UsdPhysics.CollisionGroup.Define(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
+            .CreateIncludesRel().SetTargets([Sdf.Path(q) for q in gp])
+        for g in ("rocks", "rockTiles"):
+            grp = UsdPhysics.CollisionGroup.Define(stage, f"{GROUPS}/{g}")
+            grp.CreateFilteredGroupsRel().SetTargets([Sdf.Path(f"{GROUPS}/groundQuery"),
+                                                      Sdf.Path(f"{GROUPS}/roadBase")])
+            grp.GetCollidersCollectionAPI().CreateIncludesRel()
     world.reset()
     world.play()
     physx = omni.physx.get_physx_interface()
