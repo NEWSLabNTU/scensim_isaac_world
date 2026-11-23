@@ -80,7 +80,8 @@ class RoadDetailError(ValueError):
 # A corridor's keys that are one of road_detail's (or rocks') dataclasses: its fields by name.
 def _kinds():
     return {"roughness": rd.Roughness, "ruts": rd.Ruts,
-            "potholes": rd.Potholes, "water_bars": rd.WaterBars, "rocks": rk.Zones}
+            "potholes": rd.Potholes, "water_bars": rd.WaterBars, "cleats": rd.Cleats,
+            "rocks": rk.Zones}
 
 
 TOP_KEYS = {
@@ -103,6 +104,8 @@ CORRIDOR_KEYS = {
     "potholes": "Poisson potholes, more in sags (a mapping; absent: none)",
     "washboard": "a list of corrugation zones, each u0 and u1 m along the centreline",
     "water_bars": "oblique ridges across the road (a mapping; absent: none)",
+    "cleats": "box cleats across the carriageway at fixed places, {at: [[u, height, length], "
+              "...]} m (086 C6a; absent: none)",
     "rocks": "rock cover per part of the section (a mapping; absent: no rocks)",
     "taper": "m over which the detail fades in and out at the ends (default 0)",
     "section_in_base": "true when the world's road already carries the section (a course built "
@@ -203,7 +206,16 @@ def parse(data, where=FILE, base=None, notes=None, classes=None):
                                 f"({', '.join(sorted(fields))})")
                 continue
             if "at" in given:
-                given = dict(given, at=tuple(given["at"]))
+                at_ = given["at"]
+                if name in ("cleats", "potholes") and not all(
+                        isinstance(r, (list, tuple)) and len(r) == (3 if name == "cleats" else 5)
+                        and all(isinstance(x, (int, float)) for x in r) for r in at_ or []):
+                    problems.append(f"{at}.{name}.at: a list of "
+                                    + ("[u, height, length]" if name == "cleats"
+                                       else "[u, v, depth, length, width]") + ", m")
+                    continue
+                given = dict(given, at=tuple(tuple(float(x) for x in r) if name in
+                                             ("cleats", "potholes") else r for r in at_))
             if "embed" in given:
                 given = dict(given, embed=tuple(given["embed"]))
             args[name] = cls(**given)

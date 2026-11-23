@@ -1,0 +1,36 @@
+# Roadmap 086 C6a's fixture course: R0's fixtures (roadmap 066) as the road layer's features
+# on a record course, a road made up to test the tyre contact in Isaac, not a place. Built by
+# the course builder as any course is (`python3 -m scensim_isaac_world.course
+# courses/fixture_c6a.yaml <map dir>`); driven by `course.fixture_drive`.
+name: fixture_c6a
+# A fixture's arbitrary datum, so the map frame and Autoware's projector work as for a real
+# course. It names no place: nothing here was measured there.
+origin: {lat: 36.0, lon: 140.0, alt: 0.0}
+road:
+  lanes: 2
+  lane_width: 3.25
+  shoulder: 0.75
+margin: 40.0
+speed_limit_kmh: 80
+fixture:
+  grade: 0.0
+  terrain_below: 0.30
+  crown: 0.02
+  plan:
+    - {straight: 640.0}
+  section:
+    columns: [s, lip_h_right]
+    rows:
+      - [0.0, 0.0]
+      - [640.0, 0.0]
+  # R0's fixtures (066's `spikes/fixture_course.py`), along the road, s from 0 (the record's u):
+  # cleats 5, 10, 15 cm high and 0.2 m long across the carriageway; the 8 cm pothole, 0.5 m
+  # long and 0.8 m wide, under the left track (the left wheels 0.80 m left of the left lane's
+  # middle, 1.625 m: v = 1.625 + 0.80); 30 m of washboard, 2 cm peak to peak, 0.7 m pitch
+  features:
+    # no roughness: R0's lanes are smooth but for the fixtures (the layer's default is ISO
+    # class D; a gd0 of 0 falls back to it, so a negligible one)
+    roughness: {gd0: 1.0e-12}
+    cleats: {at: [[100.0, 0.05, 0.20], [200.0, 0.10, 0.20], [300.0, 0.15, 0.20]]}
+    potholes: {at: [[400.0, 2.425, 0.08, 0.50, 0.80]]}
+    washboard: [{u0: 500.0, u1: 530.0, height: 0.02, pitch: 0.7, skew: 0.0}]

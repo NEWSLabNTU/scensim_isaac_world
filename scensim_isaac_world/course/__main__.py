@@ -139,7 +139,8 @@ def main_fixture(course, frame, map_dir, work, steps):
                            os.path.join(work, "meshes.npz"), rd.StationSection(st))
         print("geometry:", json.dumps(g))
     if "record" in steps:
-        print("record:", json.dumps(record.write(work, st, in_mesh=True)))
+        print("record:", json.dumps(record.write(work, st, in_mesh=True,
+                                                 features=course["fixture"].get("features"))))
     if "maps" in steps:
         mp = maps.build(c, course, frame, map_dir, course.get("speed_limit_kmh", 60.0))
         json.dump(mp, open(os.path.join(work, "maps.json"), "w"), indent=1)

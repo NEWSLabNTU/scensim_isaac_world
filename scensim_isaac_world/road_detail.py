@@ -250,6 +250,17 @@ class Potholes:
     diameter: tuple = (0.3, 1.0)
     edge: float = 0.03
     sag_weight: float = 3.0
+    # fixed holes in place of the Poisson ones (086 C6a, a fixture's): [u, v, depth, length,
+    # width] each, m; rectangular, vertical edges
+    at: tuple = ()
+
+
+@dataclass
+class Cleats:
+    """Fixed cleats across the carriageway (086 C6a, R0's): [u, height, length] each, m, a box
+    from u to u + length with vertical edges."""
+
+    at: tuple = ()
 
 
 @dataclass
@@ -310,6 +321,7 @@ class Corridor:
     potholes: Potholes = None
     washboard: tuple = ()
     water_bars: WaterBars = None
+    cleats: Cleats = None  # 086 C6a: a fixture's box cleats
     grade: object = None
     rocks: object = None  # rocks.Zones: the rock cover by zone (R4); None: no rocks
     taper: float = 0.0
@@ -365,8 +377,9 @@ class Corridor:
                                                                 for k in key]])
 
     def _place_potholes(self):
-        """(u, v, depth, radius) per pothole, per 100 m segment of the road."""
-        if self.potholes is None:
+        """(u, v, depth, radius) per pothole, per 100 m segment of the road; none when the
+        potholes are fixed (`Potholes.at`, `features`' rectangles)."""
+        if self.potholes is None or self.potholes.at:
             return np.zeros((0, 4))
         ph = self.potholes
         out = []
@@ -410,6 +423,13 @@ class Corridor:
             d = np.hypot(u - pu, v - pv)
             e = self.potholes.edge
             h = h - depth * np.clip((r - d) / e, 0.0, 1.0)
+        if self.potholes is not None:
+            for (pu, pv, depth, length, width) in self.potholes.at:  # fixed, vertical edges
+                h = h - np.where((u >= pu) & (u <= pu + length) & (np.abs(v - pv) <= width / 2),
+                                 depth, 0.0)
+        if self.cleats is not None:
+            for (cu, height, length) in self.cleats.at:  # boxes, vertical edges
+                h = h + np.where(inside & (u >= cu) & (u <= cu + length), height, 0.0)
         for zone in self.washboard:
             h = h + np.where(inside, zone.h(u), 0.0)
         if len(self._bars):
