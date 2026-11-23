@@ -46,6 +46,8 @@ import os
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from aib.tyre_friction import FILTER_GRIP
+
 from . import road_layer, roll_bars, soil, surfaces
 
 log = logging.getLogger("scensim_isaac_world")
@@ -68,9 +70,11 @@ RESIST_V0 = 0.1
 SIDE_V0 = 0.1
 G = 9.81
 # PhysX's tire saturates near a slip of PEAK_SPAN mu F_z / C, and uses about STIFFNESS_IN_USE
-# of the stiffness the rig writes (054 step 4a, spikes/tire_curve.py: 2.3, 0.9; the cap is
-# about 1.15 mu times the suspension force).
-PEAK_SPAN = 2.3
+# of the stiffness the rig writes (054 step 4a, spikes/tire_curve.py: 2.3, 0.9; the cap was
+# about 1.15 mu times the suspension force). That 1.15 is PhysX's tyre load filter (scensim
+# issue 108): aib now writes mu / FILTER_GRIP, so the cap is mu F_z and the peak comes
+# FILTER_GRIP sooner. `mu` here stays the spec's (aib's tire_frictions), divided once, in aib.
+PEAK_SPAN = 2.3 / FILTER_GRIP
 STIFFNESS_IN_USE = 0.9
 
 

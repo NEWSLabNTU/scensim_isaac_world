@@ -23,7 +23,7 @@ ASPHALT = TABLE["asphalt"].mu
 SQUARE = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]
 VEHICLE_GRAPH = ((0.0, 1.0), (0.1, 1.0), (1.0, 0.8))  # aib's default
 RIG = SimpleNamespace(mass=1760.0, lat_stiff_value=17.0, long_stiff_value=4612.5)
-RIG_PEAKS = surface_layer.rig_peaks(RIG)  # about (0.24, tan 8.6 deg)
+RIG_PEAKS = surface_layer.rig_peaks(RIG)  # about (0.21, tan 7.4 deg) since issue 108
 
 
 def smap(zones=(), defaults=None, **kw):
@@ -390,10 +390,14 @@ class WheelSurfacesTest(unittest.TestCase):
     def wheels(self, m=None, tire_friction=1.0):
         return surfaces.WheelSurfaces(m or smap(), tire_friction, VEHICLE_GRAPH, RIG_PEAKS)
 
-    def test_the_rig_peaks_are_spike_4as(self):
+    def test_the_rig_peaks_are_spike_4as_over_the_filter(self):
+        # spike 4a measured (0.244, 8.55 deg) at 1.154 times the spec's grip; aib now writes
+        # mu / FILTER_GRIP (scensim issue 108), so each peak comes exactly that much sooner
+        from aib.tyre_friction import FILTER_GRIP
         kappa, tan_alpha = RIG_PEAKS
-        self.assertAlmostEqual(kappa, 0.244, delta=0.005)
-        self.assertAlmostEqual(math.degrees(math.atan(tan_alpha)), 8.55, delta=0.1)
+        self.assertAlmostEqual(kappa * FILTER_GRIP, 0.244, delta=0.005)
+        self.assertAlmostEqual(math.degrees(math.atan(tan_alpha * FILTER_GRIP)), 8.55, delta=0.1)
+        self.assertAlmostEqual(surface_layer.PEAK_SPAN * FILTER_GRIP, 2.3)
 
     def test_dry_asphalt_below_the_peak_is_the_rigs_tire(self):
         ws = self.wheels(tire_friction=1.3)
