@@ -7,8 +7,9 @@ base road PhysX's wheel query sees. Before every substep each ego's four wheels 
 `road_contact.TireContact` on base + detail: its force goes to the body
 (`apply_force(body path, force, position)`, for the next step) and each wheel's friction is the
 surface layer's times the tire's load over PhysX's (`SurfaceLayer.road`). The base under a
-wheel is the plane through the four wheels' last ground hits, moved to the wheel's own hit: the
-base is smooth, so over a tire's patch it is a plane.
+wheel is the plane through the four wheels' last ground hits, moved to the wheel's own last hit
+and written about the hits' centre, not the world's origin (issue 137): the base is smooth, so
+over a tire's patch it is a plane.
 
 The ego's PhysX travel is at least the spec's plus PX_EXTRA (`vehicle_params`, aib's
 `physx_travel`), its frame raised to match, so PhysX's rigid limit lies beyond the corner's
@@ -625,25 +626,36 @@ class _Car:
             kernel="auto")
         self.z_att_prev = None
         self.scale = None
-        self.plane = None  # (a, b, c): z = a x + b y + c through the hits, then per wheel c_i
+        # (a, b, x0, y0, c): z = a (x - x0) + b (y - y0) + c_i under wheel i, about the last
+        # fit's centre (x0, y0); each wheel's last hit, (x, y, z) or None (issue 137)
+        self.plane = None
+        self.last_hit = [None] * WHEELS
         self.last_out = None
 
     def _planes(self):
-        """Per wheel (a, b, c_i) of the base under it: the plane through the ground hits, moved
-        to each wheel's own hit; the last one where a wheel is off the ground."""
-        hits = [c for c in (self.v.contacts or []) if c.on_ground]
+        """Per wheel the base under it, (a, b, x0, y0, c): z = a (x - x0) + b (y - y0) + c_i.
+        Refitted when three or more wheels are on the ground: the slopes through the hits, each
+        wheel's c_i through its own last hit under them (a wheel off the ground: its last hit;
+        never on it: the hits' mean), about the hits' centre (x0, y0). Kept otherwise.
+
+        Issue 137: c_i was the plane's height at the world's origin, and a wheel off the ground
+        kept its old c_i under a refit's new slopes. 349 m from the origin a slope change of
+        0.0029 moved that wheel's base 1.01 m, and it came down onto it."""
+        contacts = self.v.contacts or []
+        for k, c in enumerate(contacts):
+            if c.on_ground:
+                self.last_hit[k] = tuple(float(q) for q in c.position)
+        hits = [c for c in contacts if c.on_ground]
         if len(hits) >= 3:
-            a = np.array([[c.position[0], c.position[1], 1.0] for c in hits])
-            z = np.array([c.position[2] for c in hits])
-            ga, gb = _fit_slope(a[:, 0], a[:, 1], z)
-            cs = []
-            for k, c in enumerate(self.v.contacts):
-                if c.on_ground:
-                    cs.append(c.position[2] - ga * c.position[0] - gb * c.position[1])
-                else:
-                    cs.append(self.plane[2][k] if self.plane else
-                              float(np.mean(z - ga * a[:, 0] - gb * a[:, 1])))
-            self.plane = (float(ga), float(gb), np.array(cs))
+            x = np.array([c.position[0] for c in hits], dtype=float)
+            y = np.array([c.position[1] for c in hits], dtype=float)
+            z = np.array([c.position[2] for c in hits], dtype=float)
+            ga, gb = _fit_slope(x, y, z)
+            x0, y0 = float(x.mean()), float(y.mean())
+            mean_c = float(np.mean(z - ga * (x - x0) - gb * (y - y0)))
+            cs = [mean_c if h is None else h[2] - ga * (h[0] - x0) - gb * (h[1] - y0)
+                  for h in self.last_hit]
+            self.plane = (float(ga), float(gb), x0, y0, np.array(cs))
         return self.plane
 
     def step(self, layer, dt):
@@ -652,7 +664,7 @@ class _Car:
         planes = self._planes()
         if planes is None:
             return None
-        ga, gb, cs = planes
+        ga, gb, x0, y0, cs = planes
         (px, py, pz), q, (vx, vy, _) = self.v.last
         att = [qrot(q, (x, y, self.frame_z)) for x, y in self.attach]
         xy = np.array([[px + a[0], py + a[1]] for a in att])
@@ -669,17 +681,17 @@ class _Car:
         def base(x, y):
             x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
             c = cs.reshape((WHEELS,) + (1,) * (x.ndim - 1))
-            return ga * x + gb * y + c
+            return ga * (x - x0) + gb * (y - y0) + c
 
         def road(x, y):
             return base(x, y) + layer.height(x, y)
 
         def road_at(k):  # wheel k's road at any points
-            return lambda x, y: ga * np.asarray(x) + gb * np.asarray(y) + cs[k] \
+            return lambda x, y: ga * (np.asarray(x) - x0) + gb * (np.asarray(y) - y0) + cs[k] \
                 + layer.height(x, y)
 
         def road_any(x, y):  # the wheels' mean plane, within mm of each wheel's
-            return ga * np.asarray(x) + gb * np.asarray(y) + float(np.mean(cs)) \
+            return ga * (np.asarray(x) - x0) + gb * (np.asarray(y) - y0) + float(np.mean(cs)) \
                 + layer.height(x, y)
 
         rocks, stream = layer.rocks, layer.rock_stream
