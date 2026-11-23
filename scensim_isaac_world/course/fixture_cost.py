@@ -9,7 +9,7 @@ the course's centreline (`Line`) instead of the straight line from its first poi
 a winding course (086 C6b's budget on Haruna). Writes `cost.json`:
 
     python -m scensim_isaac_world.course.fixture_cost --map <map dir> --out <dir>
-        [--query raycast|sweep] [--cars 1|2|4] [--follow]
+        [--query raycast|sweep] [--cars 1|2|4] [--follow] [--road <road_detail.yaml>]
 """
 import argparse
 import dataclasses
@@ -94,6 +94,8 @@ def main():
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles (as before issue 119)")
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
+    ap.add_argument("--road", help="the road record to load (a map's own "
+                    "<map dir>/road_detail.yaml); default: the course's course/road_detail.yaml")
     ap.add_argument("--follow", action="store_true",
                     help="drive along the centreline, not the straight first-to-last line")
     a = ap.parse_args()
@@ -134,7 +136,7 @@ def main():
             usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
             prim_path="/World/env")
         ensure_vehicle_scene(stage)
-        groups_before_play(stage, a.map)  # issue 123: the world's USD is in before play
+        groups_before_play(stage, a.map, a.road)  # issue 123: the world's USD is in before play
         world.reset()
         world.play()
         physx = omni.physx.get_physx_interface()
@@ -147,7 +149,7 @@ def main():
         smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
         layer = SurfaceLayer(stage, smap, apply_force=apply_force)
         load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
-                  colliders=not a.no_colliders)
+                  colliders=not a.no_colliders, road=a.road)
         cars = []
         for k in range(a.cars):
             lane = LANE if k % 2 == 0 else -LANE
@@ -212,7 +214,7 @@ def main():
                "flush_ms_p95": round(pct(flush_ms, 95), 3),
                "tiles_mean": round(float(np.mean(tiles)), 1),
                "speeds": [round(c["state"].velocity[0], 2) for c in cars],
-               "follow": a.follow,
+               "follow": a.follow, "road": a.road or "",
                "s_end": [round(line.s_of(c["state"].position[:2]), 1) for c in cars]}
         print(f"fixture_cost: {json.dumps(out)}", flush=True)
         json.dump(out, open(os.path.join(a.out, "cost.json"), "w"), indent=1)

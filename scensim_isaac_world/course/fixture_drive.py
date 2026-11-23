@@ -75,21 +75,29 @@ def runup(speed):
     return 60.0 if speed <= 12.0 else 95.0
 
 
-def base_ground(map_dir):
+def road_path(map_dir, road=None):
+    """The road record a drive loads: `road` when given (a map's own `<map dir>/road_detail.yaml`,
+    as the world server reads it), else the course's `course/road_detail.yaml` (the fixtures)."""
+    from scensim_isaac_world import road_layer
+
+    return road or os.path.join(map_dir, "course", road_layer.FILE)
+
+
+def base_ground(map_dir, road=None):
     """The world's own road ground, `roadBase`'s members: road_detail.yaml's `ground`, else
     world.yaml's `ground_paths` (as world.py's `_load_road`)."""
     import yaml
 
     from scensim_isaac_world import road_layer
 
-    g = road_layer.load_ground(os.path.join(map_dir, "course", road_layer.FILE))
+    g = road_layer.load_ground(road_path(map_dir, road))
     if g:
         return g
     with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
         return list(yaml.safe_load(f).get("ground_paths") or [])
 
 
-def groups_before_play(stage, map_dir):
+def groups_before_play(stage, map_dir, road=None):
     """Issue 123: the road's groups made and `roadBase`'s members set before the simulation
     starts. This harness adds the world's USD before play, so PhysX takes its ground in at the
     first step; the filter holds only when the members are set before that step, which the world
@@ -101,11 +109,11 @@ def groups_before_play(stage, map_dir):
 
     rock_layer.define_groups(stage)
     UsdPhysics.CollisionGroup.Get(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
-        .GetIncludesRel().SetTargets([Sdf.Path(q) for q in base_ground(map_dir)])
+        .GetIncludesRel().SetTargets([Sdf.Path(q) for q in base_ground(map_dir, road)])
 
 
 def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
-              colliders=True, rocks_on_base=False, pool="on"):
+              colliders=True, rocks_on_base=False, pool="on", road=None):
     """The course's road on `layer` as world.py's _load_road loads a map's: the record's strips
     as zones, the road layer, the detail's collision tiles (issue 119; `colliders` False: none,
     as before it), and with rocks their stream on those tiles, then one physics step (issue
@@ -115,7 +123,7 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
     first slice had them."""
     from scensim_isaac_world import road_layer, rock_layer
 
-    road_file = os.path.join(map_dir, "course", road_layer.FILE)
+    road_file = road_path(map_dir, road)
     corridors = road_layer.load(road_file, classes=classes)
     if rocks:
         from scensim_isaac_world import rocks as rk
@@ -149,7 +157,7 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
         # (every rock made live), or made with its group membership a physics step later
         layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
             stage, layer.road, physx,
-            ground=() if rocks_on_base else base_ground(map_dir),
+            ground=() if rocks_on_base else base_ground(map_dir, road),
             colliders=layer.road_colliders, prewarm=pool == "on")
         if pool == "late":
             stream = layer.road_rocks
