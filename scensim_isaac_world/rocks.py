@@ -395,6 +395,10 @@ class Zones:
     # 086 C6b: the record's run-off strip past the shoulder (`runoff_len`; none on a section
     # without a record, where the ditch starts at the shoulder's end)
     runoff: float = 0.01
+    # 086 C6b: a fixture's rocks at fixed places, [u, v, height, embed, loose] each: height m
+    # above the surface, embed the share of the rock's own height below it, loose 1 (a rigid
+    # body) or 0 (static); a seeded hull of Zingg's axes (FIXED_PROTO), its long axis along u
+    at: tuple = ()
     embed: tuple = (0.0, 0.4)  # the share of a rock's height below the surface, uniform
     # the carriageway is graded (assumed): a rock held in it stands at most this proud, m,
     # sunk deeper where it would stand more; and a rock lying on it is at most
@@ -472,6 +476,35 @@ def size_rung(d):
 LOOSE_BELOW = 0.02  # m: Zones.loose_below when the world's ground is not filtered out
 
 
+FIXED_PROTO = 0  # the prototype a fixed rock (`Zones.at`) is scaled from
+
+
+def fixed_rock(height, embed):
+    """A fixed rock standing `height` m above the surface with `embed` of its own height below
+    it: FIXED_PROTO scaled to height / (1 - embed) tall."""
+    tall = height / (1.0 - embed)
+    return scaled(FIXED_PROTO, tall / prototypes()[FIXED_PROTO].height)
+
+
+def _fixed(detail, c, cz, i, j):
+    """The corridor's fixed rocks (`Zones.at`) whose centre lies in tile (i, j)."""
+    out = []
+    t = detail.tile
+    for (u, v, height, embed, loose) in cz.at:
+        seg = int(np.clip(np.searchsorted(c.seg_u, u, side="right") - 1, 0, len(c.seg_len) - 1))
+        d = c.seg_dir[seg]
+        x, y = c.centreline[seg] + (u - c.seg_u[seg]) * d + v * np.array([-d[1], d[0]])
+        if not (i * t <= x < (i + 1) * t and j * t <= y < (j + 1) * t):
+            continue
+        rock = fixed_rock(height, embed)
+        h = float(detail.height(np.array([x]), np.array([y]))[0])
+        sink = 0.0 if loose else embed * rock.height
+        z = float(c.surface_base(np.array([u]), np.array([v]))[0]) + h \
+            - rock.verts[:, 2].min() - sink
+        out.append((rock, np.array([x, y, z]), math.atan2(d[1], d[0]), bool(loose)))
+    return out
+
+
 def place(detail, i, j, zones=None):
     """The rocks of tile (i, j) of a road_detail.Detail: a list of (Rock, position (3,), yaw,
     dynamic), each a seeded draw from its corridor (its `rocks` Zones, or `zones` for all) and
@@ -490,6 +523,7 @@ def place(detail, i, j, zones=None):
         cz = zones or c.rocks
         if cz is None:
             continue
+        out.extend(_fixed(detail, c, cz, i, j))
         rng = c._rng(4, i, j)
         for name in ("carriageway", "shoulder", "runoff", "ditch"):
             k = getattr(cz, name)

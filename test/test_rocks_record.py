@@ -44,5 +44,47 @@ class RecordZones(unittest.TestCase):
         self.assertEqual(z.zone(sec, sec.half_width + 0.01), "shoulder")
 
 
+class FixedRocks(unittest.TestCase):
+    """086 C6b: a fixture's rocks at fixed places (`rocks: {at: ...}`)."""
+
+    def layer(self, at):
+        from scensim_isaac_world import road_layer
+
+        c, = road_layer.parse({"corridors": [{
+            "centreline": [[0, 0], [500, 0]], "roughness": {"gd0": 1e-12},
+            "rocks": {"carriageway": 0, "shoulder": 0, "runoff": 0, "ditch": 0, "at": at}}]})
+        return c
+
+    def test_each_rock_where_and_as_tall_as_asked(self):
+        c = self.layer([[100.0, 2.425, 0.15, 0.0, 0], [200.0, 2.425, 0.15, 0.0, 1],
+                        [400.0, 1.625, 0.35, 0.2, 0]])
+        d = rd.Detail([c], workers=0)
+        got = []
+        for i in range(int(500 // d.tile) + 1):
+            for j in (-1, 0, 1):
+                got += rk.place(d, i, j)
+        self.assertEqual(len(got), 3)
+        got.sort(key=lambda e: e[1][0])
+        want = [(100, 2.425, 0.15, 0, 0), (200, 2.425, 0.15, 0, 1), (400, 1.625, 0.35, 0.2, 0)]
+        for (rock, p, yaw, loose), (u, v, h, e, lo) in zip(got, want):
+            self.assertAlmostEqual(p[0], u, places=6)
+            self.assertAlmostEqual(p[1], v, places=6)
+            surface = float(c.surface_base(np.array([u]), np.array([v]))[0]
+                            + d.height(np.array([p[0]]), np.array([p[1]]))[0])
+            top = p[2] + rock.verts[:, 2].max()
+            self.assertAlmostEqual(top - surface, h, places=6)  # proud by `height`
+            self.assertEqual(loose, bool(lo))
+            self.assertAlmostEqual(yaw, 0.0)
+        self.assertTrue(5.0 < got[1][0].mass < 30.0, got[1][0].mass)  # R4's ~11 kg
+
+    def test_bad_rows_are_refused(self):
+        from scensim_isaac_world import road_layer
+
+        for bad in ([[100.0, 2.4, 0.15, 0.0]], [[100.0, 2.4, -0.1, 0.0, 0]],
+                    [[100.0, 2.4, 0.15, 1.0, 0]], [[100.0, 2.4, 0.15, 0.0, 2]]):
+            with self.assertRaises(road_layer.RoadDetailError, msg=str(bad)):
+                self.layer(bad)
+
+
 if __name__ == "__main__":
     unittest.main()

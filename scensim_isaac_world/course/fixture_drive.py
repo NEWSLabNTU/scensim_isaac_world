@@ -60,22 +60,59 @@ FIXTURES = {"cleat_05": (100.0, 0.2), "cleat_10": (200.0, 0.2), "cleat_15": (300
             "pothole": (400.0, 0.5), "washboard": (500.0, 30.0)}
 CASES = ["cleat_05@10", "cleat_10@10", "cleat_15@10", "pothole@10", "washboard@10",
          "cleat_10@20", "washboard@20"] + [f"cleat_10@20#{k}" for k in range(5)]
+# 086 C6b's fixture course (`courses/fixture_c6b.yaml`): R4's rocks, each at s with the length
+# its check looks over; 40 km/h is 11.11 m/s, 10 km/h 2.78
+FIXTURES_C6B = {"embedded_15": (100.0, 0.3), "loose_15": (200.0, 0.3), "loose_8": (300.0, 0.2),
+                "boulder_35": (400.0, 0.8)}
+CASES_C6B = ["embedded_15@11.11", "loose_15@11.11", "loose_8@11.11", "boulder_35@2.78"]
+STUCK_S = 3.0  # s under 0.1 m/s past a fixture's face less 3 m: the case ends (high-centred)
 
 
 def runup(speed):
     """m before a fixture a case starts at rest: the spec's 60 m; at 20 m/s 95 m, since 60 m
     cannot reach 20 m/s at the speed hold's 3 m/s^2 (66.7 m) before the start check, CHECK_AT m
     before the fixture."""
-    return 60.0 if speed <= 10.0 else 95.0
+    return 60.0 if speed <= 12.0 else 95.0
+
+
+def base_ground(map_dir):
+    """The world's own road ground, `roadBase`'s members: road_detail.yaml's `ground`, else
+    world.yaml's `ground_paths` (as world.py's `_load_road`)."""
+    import yaml
+
+    from scensim_isaac_world import road_layer
+
+    g = road_layer.load_ground(os.path.join(map_dir, "course", road_layer.FILE))
+    if g:
+        return g
+    with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
+        return list(yaml.safe_load(f).get("ground_paths") or [])
+
+
+def groups_before_play(stage, map_dir):
+    """Issue 123: the road's groups made and `roadBase`'s members set before the simulation
+    starts. This harness adds the world's USD before play, so PhysX takes its ground in at the
+    first step; the filter holds only when the members are set before that step, which the world
+    server meets by adding its map's ground after play and setting them at the road's load."""
+    from pxr import Sdf, UsdPhysics
+
+    from aib.isaac.vehicle import GROUPS
+    from scensim_isaac_world import rock_layer
+
+    rock_layer.define_groups(stage)
+    UsdPhysics.CollisionGroup.Get(stage, f"{GROUPS}/roadBase").GetCollidersCollectionAPI() \
+        .GetIncludesRel().SetTargets([Sdf.Path(q) for q in base_ground(map_dir)])
 
 
 def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
-              colliders=True):
+              colliders=True, rocks_on_base=False, pool="on"):
     """The course's road on `layer` as world.py's _load_road loads a map's: the record's strips
     as zones, the road layer, the detail's collision tiles (issue 119; `colliders` False: none,
     as before it), and with rocks their stream on those tiles, then one physics step (issue
     039). `rocks`: "shoulder,runoff,ditch" cover put on every corridor, the carriageway's 0
-    (086 C6b; empty: the course's own)."""
+    (086 C6b; empty: the course's own). `rocks_on_base` (issue 122's test): no collision tiles
+    and the world's ground not filtered out for the rocks, so they rest on the base mesh as R4's
+    first slice had them."""
     from scensim_isaac_world import road_layer, rock_layer
 
     road_file = os.path.join(map_dir, "course", road_layer.FILE)
@@ -89,16 +126,38 @@ def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="
                      for c in corridors]
     layer.add_record_zones(road_layer.strip_zones(corridors))
     layer.road = road_layer.RoadLayer(corridors, (0.0, 0.0, 0.0), apply_force)
-    if colliders or layer.road.rocks is not None:
+    if rocks_on_base:
+        class NoTiles(rock_layer.DetailColliders):
+            """The tiles' keys, which the rock stream streams by, with no collider made."""
+
+            def update(self, points):
+                d, ox, oy = self.layer.detail, self.layer.ox, self.layer.oy
+                want = {k for k in d.tiles_near([p[0] + ox for p in points],
+                                                [p[1] + oy for p in points],
+                                                rock_layer.COLLISION_REACH)
+                        if d.touches(*k) and d.ready(k)} if points else set()
+                self.coll = {k: None for k in want}
+
+            def remove(self):
+                self.coll = {}
+
+        layer.road_colliders = NoTiles(stage, layer.road)
+    elif colliders or layer.road.rocks is not None:
         layer.road_colliders = rock_layer.DetailColliders(stage, layer.road)
     if layer.road.rocks is not None:
-        import yaml
-
-        with open(os.path.join(map_dir, "isaac", "world.yaml")) as f:
-            ground = list(yaml.safe_load(f).get("ground_paths") or [])
+        # issue 123's diagnosis: the stream's pool of parked rock prims as it is ("on"), none
+        # (every rock made live), or made with its group membership a physics step later
         layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
-            stage, layer.road, physx, ground=road_layer.load_ground(road_file) or ground,
-            colliders=layer.road_colliders)
+            stage, layer.road, physx,
+            ground=() if rocks_on_base else base_ground(map_dir),
+            colliders=layer.road_colliders, prewarm=pool == "on")
+        if pool == "late":
+            stream = layer.road_rocks
+            flush, stream._flush_groups = stream._flush_groups, (lambda: None)
+            stream.prewarm()
+            world.step(render=False)
+            stream._flush_groups = flush
+            stream._flush_groups()
     world.step(render=False)
 
 
@@ -125,11 +184,27 @@ def main():
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles without rocks (as before issue 119)")
+    ap.add_argument("--trace-push", action="store_true",
+                    help="issue 122: every rock push (reaction, limit, applied) and the case's "
+                    "rock's own contacts, to push.csv")
+    ap.add_argument("--server-order", action="store_true",
+                    help="issue 123: the simulation started before the world's USD and the road, "
+                    "as the world server loads a map")
+    ap.add_argument("--groups-late", action="store_true",
+                    help="a test switch (issue 123): the road's groups made at the road's load, "
+                    "after PhysX took in the world's ground, as before the fix")
+    ap.add_argument("--rock-pool", choices=("on", "off", "late"), default="on",
+                    help="issue 123: the parked-rock pool as it is, none, or its group a step late")
+    ap.add_argument("--rocks-on-base", action="store_true",
+                    help="issue 122's test: no collision tiles, the rocks on the base mesh")
+    ap.add_argument("--fixtures", choices=("c6a", "c6b"), default="c6a",
+                    help="the course's fixtures: C6a's cleats or C6b's rocks")
     ap.add_argument("--rocks", default="", help="shoulder,runoff,ditch rock cover put on every "
                     "corridor, the carriageway's 0 (086 C6b; default: the course's own)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    cases = a.cases.split(",") if a.cases else CASES
+    fixtures = FIXTURES_C6B if a.fixtures == "c6b" else FIXTURES
+    cases = a.cases.split(",") if a.cases else (CASES_C6B if a.fixtures == "c6b" else CASES)
 
     from scensim_isaac_world import road_detail as rd
     from scensim_isaac_world import road_layer, surfaces
@@ -185,12 +260,21 @@ def main():
         dt = FRAME / SUB
         world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
         stage = omni.usd.get_context().get_stage()
-        add_reference_to_stage(
-            usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
-            prim_path="/World/env")
+
+        def add_world():
+            add_reference_to_stage(
+                usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
+                prim_path="/World/env")
+
+        if not a.server_order:
+            add_world()
         ensure_vehicle_scene(stage)
+        if not a.groups_late:  # issue 123: the groups and roadBase's members before the ground
+            groups_before_play(stage, a.map)
         world.reset()
         world.play()
+        if a.server_order:  # issue 123: as world.py, the simulation running before the map's USD
+            add_world()
         physx = omni.physx.get_physx_interface()
         sim = omni.physx.get_physx_simulation_interface()
 
@@ -201,7 +285,8 @@ def main():
         smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
         layer = SurfaceLayer(stage, smap, apply_force=apply_force)
         load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
-                  rocks=a.rocks, colliders=not a.no_colliders)
+                  rocks=a.rocks, colliders=not a.no_colliders, rocks_on_base=a.rocks_on_base,
+                  pool=a.rock_pool)
 
         (x0, y0), h0 = xy_at(10.0, LANE)
         pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
@@ -209,7 +294,8 @@ def main():
                       rig.box_dims, pose, ground_clearance=rig.ground_clearance,
                       truth_settings=rig.component.get("truth"))
         if layer.road_rocks is not None:
-            layer.road_rocks.reserve(1)
+            if a.rock_pool == "on":
+                layer.road_rocks.reserve(1)
         state = State()
         # the skid plate's bottom (aib's: between the axles, clear of the wheels), sampled 5 x 3
         from aib.frames import qrot
@@ -234,10 +320,15 @@ def main():
             return round(min(P[2] + qrot(q, p)[2] - road_z(P[0] + qrot(q, p)[0],
                                                            P[1] + qrot(q, p)[1]) for p in plate), 4)
 
+        contacts = [(), ()]  # this step's contact report: headers, data
+
         def physx_step(cmd):
             veh.apply(cmd, dt, state)
             layer.place([veh], dt)
             world.step(render=False)
+            contacts[:] = sim.get_contact_report()  # once a step: the self-check's and the trace's
+            if layer.road_rocks is not None:
+                layer.road_rocks.check_base(contacts[0], dt)
             layer.begin_step()
             veh.sample(physx, dt, state)
             layer.update(veh, state.velocity[0], dt)
@@ -254,7 +345,100 @@ def main():
         # C6b: PhysX's jounce per wheel (its rigid limit: px_travel), the car's longitudinal
         # acceleration (a plate strike's spike), the plate's lowest clearance over the true surface
         header += [f"jounce{i}" for i in range(4)] + ["ax", "plate"]
-        rows, report = [], {"rocks": a.rocks, "colliders": layer.road_colliders is not None,
+        # C6b (133): the front-left wheel's centre height (our contact's), the rocks in the data
+        # and in the stage and awake, and the case's own rock (the one nearest its fixture)
+        header += ["zu0", "rocks_loaded", "rock_prims", "rocks_awake", "rock_x", "rock_y", "rock_z",
+                   "rock_speed"]
+
+        # issue 122: each push on a rock as rocks.limit sees it, and the case's rock's contacts
+        push_rows, cur = [], {"case": "", "n": 0}
+        if a.trace_push and layer.road_rocks is not None:
+            from scensim_isaac_world import rock_layer
+
+            limit0 = rock_layer.rk.limit
+
+            def traced_limit(forces, mass, v_rock, v_push, dt_):
+                out, sc = limit0(forces, mass, v_rock, v_push, dt_)
+                fh = sum(f[:2] for f, _ in forces)
+                fz = sum(f[2] for f, _ in forces)
+                push_rows.append([cur["case"], cur["n"], "push", round(mass, 2),
+                                  round(float(np.linalg.norm(fh)), 1), round(float(fz), 1),
+                                  round(float(v_push), 4), round(float(sc), 4),
+                                  round(float(np.linalg.norm(fh)) * sc, 1),
+                                  round(float(np.linalg.norm(np.asarray(v_rock)[:2])), 4),
+                                  "", "", ""])
+                return out, sc
+
+            rock_layer.rk.limit = traced_limit
+        reported = set()
+
+        def rock_contacts(found):
+            """The case's rock's contacts this step (PhysX's contact report on its prim): the
+            normal and tangential force summed over its contact points, N."""
+            if not a.trace_push or found is None or layer.road_rocks is None:
+                return
+            path = layer.road_rocks.paths[found] if found < len(layer.road_rocks.paths) else None
+            if not path:
+                return
+            if path not in reported:
+                from pxr import PhysxSchema
+
+                prim = stage.GetPrimAtPath(path)
+                if prim and prim.IsValid():
+                    PhysxSchema.PhysxContactReportAPI.Apply(prim).CreateThresholdAttr(0.0)
+                    reported.add(path)
+                    # issue 123: every collision group that holds the rock or the base road, and
+                    # what each filters
+                    from pxr import Sdf, UsdPhysics
+
+                    for g in stage.Traverse():
+                        if not g.IsA(UsdPhysics.CollisionGroup):
+                            continue
+                        grp = UsdPhysics.CollisionGroup(g)
+                        q = grp.GetCollidersCollectionAPI().ComputeMembershipQuery()
+                        has = [x for x in (path, "/World/env/Road", "/World/env/Terrain")
+                               if q.IsPathIncluded(Sdf.Path(x))]
+                        filt = [str(t) for t in grp.GetFilteredGroupsRel().GetTargets()]
+                        print(f"groups: {g.GetPath()} holds {has} filters {filt}", flush=True)
+                return
+            headers, data = contacts
+            fn = ft = 0.0
+            per = {}  # the other collider -> its normal force, N
+            for h in headers:
+                a0 = str(PhysicsSchemaTools.intToSdfPath(h.actor0))
+                a1 = str(PhysicsSchemaTools.intToSdfPath(h.actor1))
+                if path not in (a0, a1):
+                    continue
+                coll = h.collider1 if a0 == path else h.collider0
+                other = str(PhysicsSchemaTools.intToSdfPath(coll))
+                for c in data[h.contact_data_offset:h.contact_data_offset + h.num_contact_data]:
+                    imp, nrm = np.array(c.impulse), np.array(c.normal)
+                    jn = float(np.dot(imp, nrm))
+                    fn += abs(jn) / dt
+                    ft += float(np.linalg.norm(imp - jn * nrm)) / dt
+                    per[other] = per.get(other, 0.0) + abs(jn) / dt
+            push_rows.append([cur["case"], cur["n"], "contact", "", "", "", "", "", "", "",
+                              round(fn, 1), round(ft, 1),
+                              ";".join(f"{k}={v:.0f}" for k, v in sorted(per.items()))])
+
+        def rock_state(fixture_xy, found):
+            rs, stream = layer.road.rocks, layer.road_rocks
+            if rs is None or stream is None:
+                return ["", "", "", "", "", "", ""], found
+            if found is None and len(rs.pos):
+                dd = np.hypot(rs.pos[:, 0] - fixture_xy[0], rs.pos[:, 1] - fixture_xy[1])
+                if dd.min() <= 1.5:
+                    found = int(np.argmin(dd))
+            prims = sum(1 for q in stream.paths if q) + sum(1 for q in stream.win.values() if q)
+            rock = ["", "", "", ""]
+            if found is not None:
+                v = stream.vel.get(found)
+                rock = [round(float(c), 4) for c in rs.pos[found]] + \
+                    [round(float(np.linalg.norm(v)), 3) if v is not None else 0.0]
+            return [len(rs.pos), prims, stream.awake()] + rock, found
+        rows, report = [], {"fixtures": a.fixtures, "rocks": a.rocks,
+                            "rocks_on_base": a.rocks_on_base, "rock_pool": a.rock_pool,
+                            "colliders": layer.road_colliders is not None,
                             "ground_clearance": rig.ground_clearance,
                             "px_travel": params.travels()[0], "query": a.query,
                             "physics_hz": round(1.0 / dt, 3),
@@ -264,7 +448,7 @@ def main():
         try:
             for case in cases:
                 name, speed, k = parse_case(case)
-                fs, flen = FIXTURES[name]
+                fs, flen = fixtures[name]
                 start = fs - runup(speed) - (k or 0) * OFFSET_STEP
                 (x, y), h = xy_at(start, LANE)
                 z = float(np.interp(start, cl["s"], cl["z"])) + 0.05
@@ -281,11 +465,19 @@ def main():
                 line = np.array([xy_at(s, LANE)[0] for s in ss])
                 cmd = Command(received=True, gear=GEAR_DRIVE)
                 t, n, err_sum, checked = 0.0, 0, 0.0, False
+                fixture_xy, found, still = xy_at(fs + flen / 2, LANE)[0], None, 0.0
                 while t < 60.0:
                     pos = np.array(state.position[:2])
                     s_now, v_now = uv(*pos)
                     if s_now >= fs + flen + AFTER:
                         break
+                    if s_now > fs - 3.0 and abs(state.velocity[0]) < 0.1:
+                        still += FRAME
+                        if still >= STUCK_S:
+                            info["stuck_at_s"] = round(s_now, 3)
+                            break
+                    else:
+                        still = 0.0
                     j = int(np.argmin(np.hypot(*(line - pos).T)))
                     tgt = line[min(j + int(LOOKAHEAD / 0.5), len(line) - 1)]
                     yaw = quat_rpy(*state.quat)[2]
@@ -310,6 +502,9 @@ def main():
                         n += 1
                         car = layer.road.cars.get(veh.path)
                         o = car.last_out if car is not None else None
+                        rock_cols, found = rock_state(fixture_xy, found)
+                        cur.update(case=case, n=n)
+                        rock_contacts(found)
                         P = state.position
                         s_now, v_now = uv(P[0], P[1])
                         _, pitch, _ = quat_rpy(*state.quat)
@@ -325,7 +520,9 @@ def main():
                                      round(pitch, 6), round(state.acceleration[2], 4), fl_s, fl_z,
                                      *loads, *air,
                                      *[round(float(j), 4) for j in (veh.jounce or [""] * 4)],
-                                     round(state.acceleration[0], 4), plate_clearance()])
+                                     round(state.acceleration[0], 4), plate_clearance(),
+                                     round(float(car.contact.zu[0]), 5) if car is not None else "",
+                                     *rock_cols])
                     layer.flush()
                     if not checked and s_now >= fs - CHECK_AT:
                         checked = True
@@ -337,10 +534,19 @@ def main():
                 report["cases"].append(info)
                 print(f"fixture_drive: {json.dumps(info)}", flush=True)
         finally:
+            if push_rows:
+                with open(os.path.join(a.out, "push.csv"), "w", newline="") as f:
+                    wr = csv.writer(f)
+                    wr.writerow(["case", "step", "kind", "mass", "fh_in", "fz_in", "v_push",
+                                 "scale", "fh_out", "v_rock", "contact_fn", "contact_ft",
+                                 "contact_with"])
+                    wr.writerows(push_rows)
             with open(os.path.join(a.out, "fixture.csv"), "w", newline="") as f:
                 wr = csv.writer(f)
                 wr.writerow(header)
                 wr.writerows(rows)
+            if layer.road_rocks is not None:  # issue 123's self-check: rocks on the base road
+                report["base_contacts"] = [list(h) for h in layer.road_rocks.base_hits]
             json.dump(report, open(os.path.join(a.out, "cases.json"), "w"), indent=1)
             print(f"fixture_drive: {len(rows)} steps, {len(report['cases'])} case(s) to {a.out}",
                   flush=True)

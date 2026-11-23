@@ -19,8 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD, load_road,
-                                                      quat_rpy, rate)
+from scensim_isaac_world.course.fixture_drive import (FRAME, LANE, LOOKAHEAD,
+                                                      groups_before_play, load_road, quat_rpy,
+                                                      rate)
 
 FRAMES = 400
 WARMUP_S = 6.0
@@ -86,6 +87,7 @@ def main():
             usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
             prim_path="/World/env")
         ensure_vehicle_scene(stage)
+        groups_before_play(stage, a.map)  # issue 123: the world's USD is in before play
         world.reset()
         world.play()
         physx = omni.physx.get_physx_interface()

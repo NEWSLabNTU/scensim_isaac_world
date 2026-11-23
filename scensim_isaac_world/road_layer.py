@@ -207,15 +207,20 @@ def parse(data, where=FILE, base=None, notes=None, classes=None):
                 continue
             if "at" in given:
                 at_ = given["at"]
-                if name in ("cleats", "potholes") and not all(
-                        isinstance(r, (list, tuple)) and len(r) == (3 if name == "cleats" else 5)
-                        and all(isinstance(x, (int, float)) for x in r) for r in at_ or []):
-                    problems.append(f"{at}.{name}.at: a list of "
-                                    + ("[u, height, length]" if name == "cleats"
-                                       else "[u, v, depth, length, width]") + ", m")
+                rows = {"cleats": (3, "[u, height, length], m"),
+                        "potholes": (5, "[u, v, depth, length, width], m"),
+                        "rocks": (5, "[u, v, height, embed, loose]: m, m, m, a share in "
+                                     "[0, 1), 0 or 1")}
+                if name in rows and not all(
+                        isinstance(r, (list, tuple)) and len(r) == rows[name][0]
+                        and all(isinstance(x, (int, float)) for x in r)
+                        and (name != "rocks" or (r[2] > 0 and 0 <= r[3] < 1
+                                                 and r[4] in (0, 1)))
+                        for r in at_ or []):
+                    problems.append(f"{at}.{name}.at: a list of {rows[name][1]}")
                     continue
-                given = dict(given, at=tuple(tuple(float(x) for x in r) if name in
-                                             ("cleats", "potholes") else r for r in at_))
+                given = dict(given, at=tuple(tuple(float(x) for x in r) if name in rows
+                                             else r for r in at_))
             if "embed" in given:
                 given = dict(given, embed=tuple(given["embed"]))
             args[name] = cls(**given)
