@@ -60,13 +60,19 @@ FIXTURES = {"cleat_05": (100.0, 0.2), "cleat_10": (200.0, 0.2), "cleat_15": (300
             "pothole": (400.0, 0.5), "washboard": (500.0, 30.0)}
 CASES = ["cleat_05@10", "cleat_10@10", "cleat_15@10", "pothole@10", "washboard@10",
          "cleat_10@20", "washboard@20"] + [f"cleat_10@20#{k}" for k in range(5)]
+# 086 C6b's fixture course (`courses/fixture_c6b.yaml`): R4's rocks, each at s with the length
+# its check looks over; 40 km/h is 11.11 m/s, 10 km/h 2.78
+FIXTURES_C6B = {"embedded_15": (100.0, 0.3), "loose_15": (200.0, 0.3), "loose_8": (300.0, 0.2),
+                "boulder_35": (400.0, 0.8)}
+CASES_C6B = ["embedded_15@11.11", "loose_15@11.11", "loose_8@11.11", "boulder_35@2.78"]
+STUCK_S = 3.0  # s under 0.1 m/s past a fixture's face less 3 m: the case ends (high-centred)
 
 
 def runup(speed):
     """m before a fixture a case starts at rest: the spec's 60 m; at 20 m/s 95 m, since 60 m
     cannot reach 20 m/s at the speed hold's 3 m/s^2 (66.7 m) before the start check, CHECK_AT m
     before the fixture."""
-    return 60.0 if speed <= 10.0 else 95.0
+    return 60.0 if speed <= 12.0 else 95.0
 
 
 def load_road(map_dir, stage, layer, physx, world, apply_force, classes, rocks="",
@@ -125,11 +131,14 @@ def main():
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     ap.add_argument("--no-colliders", action="store_true",
                     help="no detail collision tiles without rocks (as before issue 119)")
+    ap.add_argument("--fixtures", choices=("c6a", "c6b"), default="c6a",
+                    help="the course's fixtures: C6a's cleats or C6b's rocks")
     ap.add_argument("--rocks", default="", help="shoulder,runoff,ditch rock cover put on every "
                     "corridor, the carriageway's 0 (086 C6b; default: the course's own)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    cases = a.cases.split(",") if a.cases else CASES
+    fixtures = FIXTURES_C6B if a.fixtures == "c6b" else FIXTURES
+    cases = a.cases.split(",") if a.cases else (CASES_C6B if a.fixtures == "c6b" else CASES)
 
     from scensim_isaac_world import road_detail as rd
     from scensim_isaac_world import road_layer, surfaces
@@ -250,7 +259,28 @@ def main():
     # C6b: PhysX's jounce per wheel (its rigid limit: px_travel), the car's longitudinal
     # acceleration (a plate strike's spike), the plate's lowest clearance over the true surface
     header += [f"jounce{i}" for i in range(4)] + ["ax", "plate"]
-    rows, report = [], {"rocks": a.rocks, "colliders": layer.road_colliders is not None,
+    # C6b (133): the front-left wheel's centre height (our contact's), the rocks in the data
+    # and in the stage and awake, and the case's own rock (the one nearest its fixture)
+    header += ["zu0", "rocks_loaded", "rock_prims", "rocks_awake", "rock_x", "rock_y", "rock_z",
+               "rock_speed"]
+
+    def rock_state(fixture_xy, found):
+        rs, stream = layer.road.rocks, layer.road_rocks
+        if rs is None or stream is None:
+            return ["", "", "", "", "", "", ""], found
+        if found is None and len(rs.pos):
+            dd = np.hypot(rs.pos[:, 0] - fixture_xy[0], rs.pos[:, 1] - fixture_xy[1])
+            if dd.min() <= 1.5:
+                found = int(np.argmin(dd))
+        prims = sum(1 for q in stream.paths if q) + sum(1 for q in stream.win.values() if q)
+        rock = ["", "", "", ""]
+        if found is not None:
+            v = stream.vel.get(found)
+            rock = [round(float(c), 4) for c in rs.pos[found]] + \
+                [round(float(np.linalg.norm(v)), 3) if v is not None else 0.0]
+        return [len(rs.pos), prims, stream.awake()] + rock, found
+    rows, report = [], {"fixtures": a.fixtures, "rocks": a.rocks,
+                        "colliders": layer.road_colliders is not None,
                         "ground_clearance": rig.ground_clearance,
                         "px_travel": params.travels()[0], "query": a.query,
                         "physics_hz": round(1.0 / dt, 3),
@@ -260,7 +290,7 @@ def main():
     try:
         for case in cases:
             name, speed, k = parse_case(case)
-            fs, flen = FIXTURES[name]
+            fs, flen = fixtures[name]
             start = fs - runup(speed) - (k or 0) * OFFSET_STEP
             (x, y), h = xy_at(start, LANE)
             z = float(np.interp(start, cl["s"], cl["z"])) + 0.05
@@ -277,11 +307,19 @@ def main():
             line = np.array([xy_at(s, LANE)[0] for s in ss])
             cmd = Command(received=True, gear=GEAR_DRIVE)
             t, n, err_sum, checked = 0.0, 0, 0.0, False
+            fixture_xy, found, still = xy_at(fs + flen / 2, LANE)[0], None, 0.0
             while t < 60.0:
                 pos = np.array(state.position[:2])
                 s_now, v_now = uv(*pos)
                 if s_now >= fs + flen + AFTER:
                     break
+                if s_now > fs - 3.0 and abs(state.velocity[0]) < 0.1:
+                    still += FRAME
+                    if still >= STUCK_S:
+                        info["stuck_at_s"] = round(s_now, 3)
+                        break
+                else:
+                    still = 0.0
                 j = int(np.argmin(np.hypot(*(line - pos).T)))
                 tgt = line[min(j + int(LOOKAHEAD / 0.5), len(line) - 1)]
                 yaw = quat_rpy(*state.quat)[2]
@@ -305,6 +343,7 @@ def main():
                     n += 1
                     car = layer.road.cars.get(veh.path)
                     o = car.last_out if car is not None else None
+                    rock_cols, found = rock_state(fixture_xy, found)
                     P = state.position
                     s_now, v_now = uv(P[0], P[1])
                     _, pitch, _ = quat_rpy(*state.quat)
@@ -320,7 +359,9 @@ def main():
                                  round(pitch, 6), round(state.acceleration[2], 4), fl_s, fl_z,
                                  *loads, *air,
                                  *[round(float(j), 4) for j in (veh.jounce or [""] * 4)],
-                                 round(state.acceleration[0], 4), plate_clearance()])
+                                 round(state.acceleration[0], 4), plate_clearance(),
+                                 round(float(car.contact.zu[0]), 5) if car is not None else "",
+                                 *rock_cols])
                 layer.flush()
                 if not checked and s_now >= fs - CHECK_AT:
                     checked = True

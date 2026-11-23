@@ -1,0 +1,47 @@
+# Roadmap 086 C6b's fixture course: R4's four rock fixtures (roadmap 066, `spikes/rock_fixtures.py`)
+# as the road layer's fixed rocks on a record course, and rocks placed from the record's strips
+# elsewhere. A road made up to test rocks in Isaac, not a place. Built by the course builder as
+# any course is; driven by `course.fixture_drive --fixtures c6b`.
+name: fixture_c6b
+# A fixture's arbitrary datum, so the map frame and Autoware's projector work as for a real
+# course. It names no place: nothing here was measured there.
+origin: {lat: 36.0, lon: 140.0, alt: 0.0}
+road:
+  lanes: 2
+  lane_width: 3.25
+  shoulder: 0.75
+margin: 40.0
+speed_limit_kmh: 60
+fixture:
+  grade: 0.0
+  terrain_below: 0.30
+  crown: 0.02
+  plan:
+    - {straight: 520.0}
+  # a 1 m run-off past each shoulder, so the record's strips (086 C6b) are all there
+  section:
+    columns: [s, runoff_len_left, runoff_len_right]
+    rows:
+      - [0.0, 1.0, 1.0]
+      - [520.0, 1.0, 1.0]
+  features:
+    # no roughness: R4's slice drove a smooth base (the layer's default is ISO class D; a gd0
+    # of 0 falls back to it, so a negligible one)
+    roughness: {gd0: 1.0e-12}
+    # R4's cover from the record's strips (assumed values, 066 R4), none on the carriageway;
+    # and the four fixtures on the left lane (its middle v = 1.625; the left wheels' track
+    # 0.80 m further left; a tyre's outer edge 0.12 m beyond):
+    #   s 100 embedded_15: static, 15 cm proud, 10 % of it sunk, under the left wheels
+    #   s 200 loose_15: loose, 15 cm, under the left wheels
+    #   s 300 loose_8: loose, 8 cm, under the left tyres' outer edge
+    #   s 400 boulder_35: static, 35 cm proud, 20 % sunk, between the wheel tracks
+    rocks:
+      carriageway: 0.0
+      shoulder: 0.01
+      runoff: 0.01
+      ditch: 0.03
+      at:
+        - [100.0, 2.425, 0.15, 0.1, 0]
+        - [200.0, 2.425, 0.15, 0.0, 1]
+        - [300.0, 2.545, 0.08, 0.0, 1]
+        - [400.0, 1.625, 0.35, 0.2, 0]
