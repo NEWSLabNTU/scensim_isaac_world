@@ -23,17 +23,24 @@ def main(argv=None):
     ap.add_argument("--json")
     a = ap.parse_args(argv)
 
+    from aib import app_exit
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True})
-    out = run(a.map_dir)
-    text = json.dumps(out, indent=1)
-    print(text, flush=True)
-    if a.json:
-        with open(a.json, "w") as f:
-            f.write(text + "\n")
-    app.close()
-    return 0 if out["pass"] else 1
+    code = 1  # a check that fails is a failed run, as one that raises
+    try:
+        out = run(a.map_dir)
+        text = json.dumps(out, indent=1)
+        print(text, flush=True)
+        if a.json:
+            with open(a.json, "w") as f:
+                f.write(text + "\n")
+        code = 0 if out["pass"] else 1
+    except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+        code = app_exit.code_of(e) or 1
+    finally:
+        app_exit.close(app, code)  # its status: Kit's close would end the process with 0
+    return code
 
 
 def run(map_dir):

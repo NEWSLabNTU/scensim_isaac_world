@@ -63,53 +63,56 @@ def main():
     SUB, substeps = rate(a.hz, params.physx_substeps)
     params = dataclasses.replace(params, physx_substeps=substeps)
 
+    from aib import app_exit
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True, "extra_args": ["--/crashreporter/url="]})
-    import omni.physx
-    import omni.usd
-    from isaacsim.core.api import World
-    from isaacsim.core.utils.stage import add_reference_to_stage
-    from pxr import PhysicsSchemaTools
-
-    from aib.control import GEAR_DRIVE, Command, State
-    from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
-    from scensim_isaac_world.surface_layer import SurfaceLayer
-
-    dt = FRAME / SUB
-    world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
-    stage = omni.usd.get_context().get_stage()
-    add_reference_to_stage(usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
-                           prim_path="/World/env")
-    ensure_vehicle_scene(stage)
-    world.reset()
-    world.play()
-    physx = omni.physx.get_physx_interface()
-    sim = omni.physx.get_physx_simulation_interface()
-
-    def apply_force(path, force, position):
-        sim.apply_force_at_pos(omni.usd.get_context().get_stage_id(),
-                               PhysicsSchemaTools.sdfPathToInt(path), force, position)
-
-    smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
-    layer = SurfaceLayer(stage, smap, apply_force=apply_force)
-    load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
-              colliders=not a.no_colliders)
-    cars = []
-    for k in range(a.cars):
-        lane = LANE if k % 2 == 0 else -LANE
-        s0 = START + GAP * (k // 2) + GAP / 2 * (k % 2)
-        p = xy(s0, lane)
-        pose = ((float(p[0]), float(p[1]), 0.6), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
-        veh = Vehicle(stage, f"/World/car{k}", params, rig.make_component(), rig.box_center,
-                      rig.box_dims, pose, ground_clearance=rig.ground_clearance,
-                      truth_settings=rig.component.get("truth"))
-        cars.append({"veh": veh, "state": State(), "lane": lane, "i": 0.0,
-                     "cmd": Command(received=True, gear=GEAR_DRIVE)})
-
-    t, frame_ms, contact_ms, flush_ms, tiles = 0.0, [], [], [], []
-    total = int(WARMUP_S / FRAME) + FRAMES
+    code = 0
     try:
+        import omni.physx
+        import omni.usd
+        from isaacsim.core.api import World
+        from isaacsim.core.utils.stage import add_reference_to_stage
+        from pxr import PhysicsSchemaTools
+
+        from aib.control import GEAR_DRIVE, Command, State
+        from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
+        from scensim_isaac_world.surface_layer import SurfaceLayer
+
+        dt = FRAME / SUB
+        world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
+        stage = omni.usd.get_context().get_stage()
+        add_reference_to_stage(
+            usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
+            prim_path="/World/env")
+        ensure_vehicle_scene(stage)
+        world.reset()
+        world.play()
+        physx = omni.physx.get_physx_interface()
+        sim = omni.physx.get_physx_simulation_interface()
+
+        def apply_force(path, force, position):
+            sim.apply_force_at_pos(omni.usd.get_context().get_stage_id(),
+                                   PhysicsSchemaTools.sdfPathToInt(path), force, position)
+
+        smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
+        layer = SurfaceLayer(stage, smap, apply_force=apply_force)
+        load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
+                  colliders=not a.no_colliders)
+        cars = []
+        for k in range(a.cars):
+            lane = LANE if k % 2 == 0 else -LANE
+            s0 = START + GAP * (k // 2) + GAP / 2 * (k % 2)
+            p = xy(s0, lane)
+            pose = ((float(p[0]), float(p[1]), 0.6), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
+            veh = Vehicle(stage, f"/World/car{k}", params, rig.make_component(), rig.box_center,
+                          rig.box_dims, pose, ground_clearance=rig.ground_clearance,
+                          truth_settings=rig.component.get("truth"))
+            cars.append({"veh": veh, "state": State(), "lane": lane, "i": 0.0,
+                         "cmd": Command(received=True, gear=GEAR_DRIVE)})
+
+        t, frame_ms, contact_ms, flush_ms, tiles = 0.0, [], [], [], []
+        total = int(WARMUP_S / FRAME) + FRAMES
         for f in range(total):
             for c in cars:
                 st, cmd = c["state"], c["cmd"]
@@ -163,8 +166,10 @@ def main():
                                       - np.array([x0, y0])) @ d), 1) for c in cars]}
         print(f"fixture_cost: {json.dumps(out)}", flush=True)
         json.dump(out, open(os.path.join(a.out, "cost.json"), "w"), indent=1)
+    except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+        code = app_exit.code_of(e)
     finally:
-        app.close()
+        app_exit.close(app, code)
 
 
 if __name__ == "__main__":

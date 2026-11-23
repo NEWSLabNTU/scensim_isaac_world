@@ -29,11 +29,15 @@ os.environ.pop("DISPLAY", None)
 from isaacsim import SimulationApp  # noqa: E402
 
 app = SimulationApp({"headless": True, "extra_args": ["--/crashreporter/url="]})  # no crash uploads
+from aib import app_exit  # noqa: E402
+
+app_exit.guard(app)  # an escaped exception ends with 1, not with Kit's 0 (scensim issue 118)
 from aib.control import GEAR_DRIVE  # noqa: E402
 from scensim_isaac_world.world import IsaacWorld  # noqa: E402
 
 world = IsaacWorld(ego_config=EGO)
 SUB = 3
+code = 0
 try:
     only = os.environ.get("ONLY", "").split(",")
     for n, (test, length) in enumerate(TESTS.items()):
@@ -73,6 +77,8 @@ try:
             w.writerows(rows)
         print(test, "done; final v %.2f" % ego.state.velocity[0], flush=True)
         world.despawn(handle)
+except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+    code = app_exit.code_of(e)
 finally:
     world.close() if hasattr(world, "close") else None
-    app.close()
+    app_exit.close(app, code)

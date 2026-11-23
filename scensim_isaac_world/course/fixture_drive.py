@@ -166,180 +166,188 @@ def main():
     SUB, substeps = rate(a.hz, params.physx_substeps)
     params = dataclasses.replace(params, physx_substeps=substeps)
 
+    from aib import app_exit
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True, "extra_args": ["--/crashreporter/url="]})
-    import omni.physx
-    import omni.usd
-    from isaacsim.core.api import World
-    from isaacsim.core.utils.stage import add_reference_to_stage
-    from pxr import PhysicsSchemaTools
-
-    from aib.control import GEAR_DRIVE, Command, State
-    from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
-    from scensim_isaac_world.surface_layer import SurfaceLayer
-
-    dt = FRAME / SUB
-    world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
-    stage = omni.usd.get_context().get_stage()
-    add_reference_to_stage(usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
-                           prim_path="/World/env")
-    ensure_vehicle_scene(stage)
-    world.reset()
-    world.play()
-    physx = omni.physx.get_physx_interface()
-    sim = omni.physx.get_physx_simulation_interface()
-
-    def apply_force(path, force, position):  # as world.py's _apply_force
-        sim.apply_force_at_pos(omni.usd.get_context().get_stage_id(),
-                               PhysicsSchemaTools.sdfPathToInt(path), force, position)
-
-    smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
-    layer = SurfaceLayer(stage, smap, apply_force=apply_force)
-    load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
-              rocks=a.rocks, colliders=not a.no_colliders)
-
-    (x0, y0), h0 = xy_at(10.0, LANE)
-    pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
-    veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
-                  rig.box_dims, pose, ground_clearance=rig.ground_clearance,
-                  truth_settings=rig.component.get("truth"))
-    if layer.road_rocks is not None:
-        layer.road_rocks.reserve(1)
-    state = State()
-    # the skid plate's bottom (aib's: between the axles, clear of the wheels), sampled 5 x 3
-    from aib.frames import qrot
-
-    r_w = params.wheel_radius
-    px = np.linspace(r_w, params.wheel_base - r_w, 5)
-    py = np.linspace(-1, 1, 3) * (params.wheel_tread - params.wheel_width - 0.1) / 2
-    plate = [(x, y, rig.ground_clearance) for x in px for y in py]
-
-    def road_z(x, y):
-        """The true surface at world (x, y): the base road (the section in it) and the
-        detail."""
-        u, v = uv(x, y)
-        u0 = u - s0
-        return float(corridor.base_z(u0) + corridor.section.height_uv(u0, v)
-                     + layer.road.height(np.array([x]), np.array([y]))[0])
-
-    def plate_clearance():
-        if rig.ground_clearance <= 0:
-            return ""
-        P, q = state.position, state.quat
-        return round(min(P[2] + qrot(q, p)[2] - road_z(P[0] + qrot(q, p)[0],
-                                                       P[1] + qrot(q, p)[1]) for p in plate), 4)
-
-    def physx_step(cmd):
-        veh.apply(cmd, dt, state)
-        layer.place([veh], dt)
-        world.step(render=False)
-        layer.begin_step()
-        veh.sample(physx, dt, state)
-        layer.update(veh, state.velocity[0], dt)
-
-    def frame(cmd):
-        for _ in range(SUB):
-            physx_step(cmd)
-        layer.flush()
-
-    # fl_s: the front-left hub's s (the reference's x); fl_z: its attachment's height (the
-    # corner's body, the reference's zs)
-    header = ["case", "t", "step", "s", "v", "speed", "z", "pitch", "az", "fl_s", "fl_z"]
-    header += [f"load{i}" for i in range(4)] + [f"air{i}" for i in range(4)]
-    # C6b: PhysX's jounce per wheel (its rigid limit: px_travel), the car's longitudinal
-    # acceleration (a plate strike's spike), the plate's lowest clearance over the true surface
-    header += [f"jounce{i}" for i in range(4)] + ["ax", "plate"]
-    rows, report = [], {"rocks": a.rocks, "colliders": layer.road_colliders is not None,
-                        "ground_clearance": rig.ground_clearance,
-                        "px_travel": params.travels()[0], "query": a.query,
-                        "physics_hz": round(1.0 / dt, 3),
-                        "physx_substeps": params.physx_substeps, "frame_s": FRAME,
-                        "aib": os.environ.get("AIB_COMMIT", ""), "cases": []}
-    idle = Command(received=True, gear=GEAR_DRIVE)
+    code = 0
     try:
-        for case in cases:
-            name, speed, k = parse_case(case)
-            fs, flen = FIXTURES[name]
-            start = fs - runup(speed) - (k or 0) * OFFSET_STEP
-            (x, y), h = xy_at(start, LANE)
-            z = float(np.interp(start, cl["s"], cl["z"])) + 0.05
-            veh.teleport(((float(x), float(y), z), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2))),
-                         physx)
-            layer.reset(veh.path)
-            layer.road.reset(veh.path)
-            state = State()
-            for _ in range(SETTLE_FRAMES):
-                frame(idle)
-            info = {"case": case, "fixture": name, "speed": speed, "offset": k,
-                    "fixture_s": fs, "fixture_len": flen, "start_s": start}
-            ss = np.arange(start - 10.0, fs + flen + AFTER + 20.0, 0.5)
-            line = np.array([xy_at(s, LANE)[0] for s in ss])
-            cmd = Command(received=True, gear=GEAR_DRIVE)
-            t, n, err_sum, checked = 0.0, 0, 0.0, False
-            while t < 60.0:
-                pos = np.array(state.position[:2])
-                s_now, v_now = uv(*pos)
-                if s_now >= fs + flen + AFTER:
-                    break
-                j = int(np.argmin(np.hypot(*(line - pos).T)))
-                tgt = line[min(j + int(LOOKAHEAD / 0.5), len(line) - 1)]
-                yaw = quat_rpy(*state.quat)[2]
-                dx, dy = tgt - pos
-                steer = math.atan2(2 * params.wheel_base
-                                   * math.sin(math.atan2(dy, dx) - yaw), math.hypot(dx, dy))
-                vel = state.velocity[0]
-                cmd.tire_angle = max(-params.max_steer_angle, min(params.max_steer_angle, steer))
-                # a ramped target with its rate fed forward, the integral only once on speed:
-                # a step to `speed` overshot by 0.1 m/s and was still settling at the check
-                ramp = RAMP if speed <= 10.0 else RAMP_FAST
-                vref = min(speed, ramp * t)
-                ff = ramp if vref < speed else 0.0
-                cmd.velocity = vref
-                if vref >= speed and abs(speed - vel) < 0.5:
-                    err_sum = max(-5.0, min(5.0, err_sum + (speed - vel) * FRAME))
-                cmd.acceleration = max(-3.0, min(3.0, ff + 1.5 * (vref - vel) + 0.5 * err_sum))
-                for _ in range(SUB):
-                    physx_step(cmd)
-                    t += dt
-                    n += 1
-                    car = layer.road.cars.get(veh.path)
-                    o = car.last_out if car is not None else None
-                    P = state.position
-                    s_now, v_now = uv(P[0], P[1])
-                    _, pitch, _ = quat_rpy(*state.quat)
-                    loads = [round(float(x), 1) for x in o["load"]] if o else [""] * 4
-                    air = [round(float(x), 3) for x in o["airborne"]] if o else [""] * 4
-                    if o is not None:
-                        fl_s = round(uv(*car.last_xy[0])[0], 4)
-                        fl_z = round(float(car.z_att_prev[0]), 5)
-                    else:
-                        fl_s = fl_z = ""
-                    rows.append([case, round(t, 5), n, round(s_now, 4), round(v_now, 4),
-                                 round(state.velocity[0], 4), round(float(P[2]), 5),
-                                 round(pitch, 6), round(state.acceleration[2], 4), fl_s, fl_z,
-                                 *loads, *air,
-                                 *[round(float(j), 4) for j in (veh.jounce or [""] * 4)],
-                                 round(state.acceleration[0], 4), plate_clearance()])
-                layer.flush()
-                if not checked and s_now >= fs - CHECK_AT:
-                    checked = True
-                    info.update(start_t=round(t, 4), start_speed=round(state.velocity[0], 4),
-                                start_offset=round(v_now - LANE, 4))
-                    info["start_ok"] = bool(abs(state.velocity[0] - speed) <= START_SPEED_TOL
-                                            and abs(v_now - LANE) <= START_OFFSET_TOL)
-            info["steps"] = n
-            report["cases"].append(info)
-            print(f"fixture_drive: {json.dumps(info)}", flush=True)
+        import omni.physx
+        import omni.usd
+        from isaacsim.core.api import World
+        from isaacsim.core.utils.stage import add_reference_to_stage
+        from pxr import PhysicsSchemaTools
+
+        from aib.control import GEAR_DRIVE, Command, State
+        from aib.isaac.vehicle import Vehicle, ensure_vehicle_scene
+        from scensim_isaac_world.surface_layer import SurfaceLayer
+
+        dt = FRAME / SUB
+        world = World(stage_units_in_meters=1.0, physics_dt=dt, rendering_dt=dt)
+        stage = omni.usd.get_context().get_stage()
+        add_reference_to_stage(
+            usd_path=os.path.realpath(os.path.join(a.map, "isaac", "world.usdc")),
+            prim_path="/World/env")
+        ensure_vehicle_scene(stage)
+        world.reset()
+        world.play()
+        physx = omni.physx.get_physx_interface()
+        sim = omni.physx.get_physx_simulation_interface()
+
+        def apply_force(path, force, position):  # as world.py's _apply_force
+            sim.apply_force_at_pos(omni.usd.get_context().get_stage_id(),
+                                   PhysicsSchemaTools.sdfPathToInt(path), force, position)
+
+        smap = surfaces.load(os.path.join(a.map, surfaces.FILE))
+        layer = SurfaceLayer(stage, smap, apply_force=apply_force)
+        load_road(a.map, stage, layer, physx, world, apply_force, set(smap.table.classes),
+                  rocks=a.rocks, colliders=not a.no_colliders)
+
+        (x0, y0), h0 = xy_at(10.0, LANE)
+        pose = ((float(x0), float(y0), 1.0), (math.cos(h0 / 2), 0.0, 0.0, math.sin(h0 / 2)))
+        veh = Vehicle(stage, "/World/ego", params, rig.make_component(), rig.box_center,
+                      rig.box_dims, pose, ground_clearance=rig.ground_clearance,
+                      truth_settings=rig.component.get("truth"))
+        if layer.road_rocks is not None:
+            layer.road_rocks.reserve(1)
+        state = State()
+        # the skid plate's bottom (aib's: between the axles, clear of the wheels), sampled 5 x 3
+        from aib.frames import qrot
+
+        r_w = params.wheel_radius
+        px = np.linspace(r_w, params.wheel_base - r_w, 5)
+        py = np.linspace(-1, 1, 3) * (params.wheel_tread - params.wheel_width - 0.1) / 2
+        plate = [(x, y, rig.ground_clearance) for x in px for y in py]
+
+        def road_z(x, y):
+            """The true surface at world (x, y): the base road (the section in it) and the
+            detail."""
+            u, v = uv(x, y)
+            u0 = u - s0
+            return float(corridor.base_z(u0) + corridor.section.height_uv(u0, v)
+                         + layer.road.height(np.array([x]), np.array([y]))[0])
+
+        def plate_clearance():
+            if rig.ground_clearance <= 0:
+                return ""
+            P, q = state.position, state.quat
+            return round(min(P[2] + qrot(q, p)[2] - road_z(P[0] + qrot(q, p)[0],
+                                                           P[1] + qrot(q, p)[1]) for p in plate), 4)
+
+        def physx_step(cmd):
+            veh.apply(cmd, dt, state)
+            layer.place([veh], dt)
+            world.step(render=False)
+            layer.begin_step()
+            veh.sample(physx, dt, state)
+            layer.update(veh, state.velocity[0], dt)
+
+        def frame(cmd):
+            for _ in range(SUB):
+                physx_step(cmd)
+            layer.flush()
+
+        # fl_s: the front-left hub's s (the reference's x); fl_z: its attachment's height (the
+        # corner's body, the reference's zs)
+        header = ["case", "t", "step", "s", "v", "speed", "z", "pitch", "az", "fl_s", "fl_z"]
+        header += [f"load{i}" for i in range(4)] + [f"air{i}" for i in range(4)]
+        # C6b: PhysX's jounce per wheel (its rigid limit: px_travel), the car's longitudinal
+        # acceleration (a plate strike's spike), the plate's lowest clearance over the true surface
+        header += [f"jounce{i}" for i in range(4)] + ["ax", "plate"]
+        rows, report = [], {"rocks": a.rocks, "colliders": layer.road_colliders is not None,
+                            "ground_clearance": rig.ground_clearance,
+                            "px_travel": params.travels()[0], "query": a.query,
+                            "physics_hz": round(1.0 / dt, 3),
+                            "physx_substeps": params.physx_substeps, "frame_s": FRAME,
+                            "aib": os.environ.get("AIB_COMMIT", ""), "cases": []}
+        idle = Command(received=True, gear=GEAR_DRIVE)
+        try:
+            for case in cases:
+                name, speed, k = parse_case(case)
+                fs, flen = FIXTURES[name]
+                start = fs - runup(speed) - (k or 0) * OFFSET_STEP
+                (x, y), h = xy_at(start, LANE)
+                z = float(np.interp(start, cl["s"], cl["z"])) + 0.05
+                veh.teleport(((float(x), float(y), z),
+                              (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2))), physx)
+                layer.reset(veh.path)
+                layer.road.reset(veh.path)
+                state = State()
+                for _ in range(SETTLE_FRAMES):
+                    frame(idle)
+                info = {"case": case, "fixture": name, "speed": speed, "offset": k,
+                        "fixture_s": fs, "fixture_len": flen, "start_s": start}
+                ss = np.arange(start - 10.0, fs + flen + AFTER + 20.0, 0.5)
+                line = np.array([xy_at(s, LANE)[0] for s in ss])
+                cmd = Command(received=True, gear=GEAR_DRIVE)
+                t, n, err_sum, checked = 0.0, 0, 0.0, False
+                while t < 60.0:
+                    pos = np.array(state.position[:2])
+                    s_now, v_now = uv(*pos)
+                    if s_now >= fs + flen + AFTER:
+                        break
+                    j = int(np.argmin(np.hypot(*(line - pos).T)))
+                    tgt = line[min(j + int(LOOKAHEAD / 0.5), len(line) - 1)]
+                    yaw = quat_rpy(*state.quat)[2]
+                    dx, dy = tgt - pos
+                    steer = math.atan2(2 * params.wheel_base
+                                       * math.sin(math.atan2(dy, dx) - yaw), math.hypot(dx, dy))
+                    vel = state.velocity[0]
+                    cmd.tire_angle = max(-params.max_steer_angle,
+                                         min(params.max_steer_angle, steer))
+                    # a ramped target with its rate fed forward, the integral only once on speed:
+                    # a step to `speed` overshot by 0.1 m/s and was still settling at the check
+                    ramp = RAMP if speed <= 10.0 else RAMP_FAST
+                    vref = min(speed, ramp * t)
+                    ff = ramp if vref < speed else 0.0
+                    cmd.velocity = vref
+                    if vref >= speed and abs(speed - vel) < 0.5:
+                        err_sum = max(-5.0, min(5.0, err_sum + (speed - vel) * FRAME))
+                    cmd.acceleration = max(-3.0, min(3.0, ff + 1.5 * (vref - vel) + 0.5 * err_sum))
+                    for _ in range(SUB):
+                        physx_step(cmd)
+                        t += dt
+                        n += 1
+                        car = layer.road.cars.get(veh.path)
+                        o = car.last_out if car is not None else None
+                        P = state.position
+                        s_now, v_now = uv(P[0], P[1])
+                        _, pitch, _ = quat_rpy(*state.quat)
+                        loads = [round(float(x), 1) for x in o["load"]] if o else [""] * 4
+                        air = [round(float(x), 3) for x in o["airborne"]] if o else [""] * 4
+                        if o is not None:
+                            fl_s = round(uv(*car.last_xy[0])[0], 4)
+                            fl_z = round(float(car.z_att_prev[0]), 5)
+                        else:
+                            fl_s = fl_z = ""
+                        rows.append([case, round(t, 5), n, round(s_now, 4), round(v_now, 4),
+                                     round(state.velocity[0], 4), round(float(P[2]), 5),
+                                     round(pitch, 6), round(state.acceleration[2], 4), fl_s, fl_z,
+                                     *loads, *air,
+                                     *[round(float(j), 4) for j in (veh.jounce or [""] * 4)],
+                                     round(state.acceleration[0], 4), plate_clearance()])
+                    layer.flush()
+                    if not checked and s_now >= fs - CHECK_AT:
+                        checked = True
+                        info.update(start_t=round(t, 4), start_speed=round(state.velocity[0], 4),
+                                    start_offset=round(v_now - LANE, 4))
+                        info["start_ok"] = bool(abs(state.velocity[0] - speed) <= START_SPEED_TOL
+                                                and abs(v_now - LANE) <= START_OFFSET_TOL)
+                info["steps"] = n
+                report["cases"].append(info)
+                print(f"fixture_drive: {json.dumps(info)}", flush=True)
+        finally:
+            with open(os.path.join(a.out, "fixture.csv"), "w", newline="") as f:
+                wr = csv.writer(f)
+                wr.writerow(header)
+                wr.writerows(rows)
+            json.dump(report, open(os.path.join(a.out, "cases.json"), "w"), indent=1)
+            print(f"fixture_drive: {len(rows)} steps, {len(report['cases'])} case(s) to {a.out}",
+                  flush=True)
+    except BaseException as e:  # app.close() would end the process with 0 (scensim issue 118)
+        code = app_exit.code_of(e)
     finally:
-        with open(os.path.join(a.out, "fixture.csv"), "w", newline="") as f:
-            wr = csv.writer(f)
-            wr.writerow(header)
-            wr.writerows(rows)
-        json.dump(report, open(os.path.join(a.out, "cases.json"), "w"), indent=1)
-        print(f"fixture_drive: {len(rows)} steps, {len(report['cases'])} case(s) to {a.out}",
-              flush=True)
-        app.close()
+        app_exit.close(app, code)
 
 
 if __name__ == "__main__":
