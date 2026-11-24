@@ -58,6 +58,11 @@ MAX_DEPENETRATION = 1.0  # m/s
 SPECULATIVE_CCD = True
 CONTACT_OFFSET = None  # m, PhysX's own when None
 SOLVER_POSITION_ITERATIONS = None  # the scene's when None
+# m, the detail collision tiles' contact offset (rest offset 0); PhysX's own reach when None.
+# Issue 140: unauthored, PhysX made contact points out to 0.33 m between the skid plate and a
+# tile, and the solver took one on a pothole wall's 29 deg face, 8.3 cm under the plate, for a
+# strike (6.3 kN s, 1.4 m/s in a step).
+TILE_CONTACT_OFFSET = 0.02
 PARK_Z = -1000.0  # m: where a parked rock prim waits for its next rock
 # m a frame: a rock leaving the car's path sleeps only once it moved less than this since the
 # last frame (0.2 m/s at 20 Hz). A rock kicked into the air is still flying when the car has
@@ -128,7 +133,7 @@ class DetailColliders:
 
     def update(self, points):
         """Once a frame: `points` the vehicles' (x, y, ...) in the world."""
-        from pxr import Sdf, UsdGeom, UsdPhysics
+        from pxr import PhysxSchema, Sdf, UsdGeom, UsdPhysics
 
         d, ox, oy = self.layer.detail, self.layer.ox, self.layer.oy
         xs = [p[0] + ox for p in points]
@@ -154,6 +159,10 @@ class DetailColliders:
             m = _mesh(self.stage, path, np.stack([gx, gy, h], axis=-1).reshape(-1, 3),
                       self.coll_idx, self.coll_cnt, "none")
             m.CreateVisibilityAttr(UsdGeom.Tokens.invisible)  # MeshStream's is the render
+            if TILE_CONTACT_OFFSET is not None:
+                col = PhysxSchema.PhysxCollisionAPI.Apply(m.GetPrim())
+                col.CreateContactOffsetAttr(TILE_CONTACT_OFFSET)
+                col.CreateRestOffsetAttr(0.0)
             self.adds.add(path)
             self.coll[k] = path
             self.coll_ms.append((time.perf_counter() - t0) * 1e3)
