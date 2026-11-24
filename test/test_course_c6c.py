@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 import yaml
@@ -102,6 +103,42 @@ class Unchanged(unittest.TestCase):
         x, y = np.meshgrid(np.arange(-10, 210, 0.37), np.arange(-15, 60, 0.41))
         h = np.asarray(d.height(x, y), dtype=np.float64)
         self.assertEqual(hashlib.sha256(h.tobytes()).hexdigest(), GOLDEN)
+
+
+class NoProfilePath(unittest.TestCase):
+    """086 C6c's profiles, version-independent (133): a corridor without `profiles` never enters
+    the profile code, so its tiles are what they were before C6c on any numpy. `Unchanged` above
+    holds the heights to 7813843's bytes on the gate host's numpy only."""
+
+    def test_a_corridor_without_profiles_never_reaches_the_profile_code(self):
+        def refuse(*a, **k):
+            raise AssertionError("the profile code ran for a corridor without profiles")
+        c, = road_layer.parse({"corridors": [{
+            "centreline": [[0, 0], [120, 0], [200, 40]], "seed": 7, "ruts": {}, "potholes": {},
+            "water_bars": {}, "cleats": {"at": [[30.0, 0.05, 0.2]]},
+            "washboard": [{"u0": 60.0, "u1": 90.0}]}]})
+        self.assertEqual(c.profiles, ())
+        x, y = np.meshgrid(np.arange(-10, 210, 0.37), np.arange(-15, 60, 0.41))
+        with mock.patch.object(rd.Profile, "h", refuse), \
+                mock.patch.object(rd, "iso8608_profile", refuse):
+            a = np.asarray(rd.Detail([c], workers=0).height(x, y), dtype=np.float64)
+            b = np.asarray(rd.Detail([c], workers=0).height(x, y), dtype=np.float64)
+        np.testing.assert_array_equal(a, b)  # and the same each time
+        self.assertGreater(float(np.abs(a).max()), 0.0)
+
+    def test_a_corridor_with_a_profile_does_reach_it(self):
+        """The control: the patch above would catch the profile path if it ran."""
+        c, = road_layer.parse({"corridors": [{"centreline": [[0, 0], [200, 0]],
+                                              "profiles": [{"u0": 10.0, "length": 50.0}]}]})
+        calls = []
+        orig = rd.Profile.h
+
+        def spy(self, u):
+            calls.append(1)
+            return orig(self, u)
+        with mock.patch.object(rd.Profile, "h", spy):
+            rd.Detail([c], workers=0).height(np.array([30.0]), np.array([0.0]))
+        self.assertTrue(calls)
 
 
 class Check(unittest.TestCase):
