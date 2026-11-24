@@ -548,18 +548,34 @@ class Detail:
         return np.meshgrid(i * self.tile + np.arange(n + 1) * d,
                            j * self.tile + np.arange(n + 1) * d)
 
+    def _reaches(self, c, i, j):
+        """Whether corridor `c` can reach tile (i, j): its centre's |v| within the corridor's
+        reach and a tile. A point's distance to the centreline changes by at most its own
+        displacement, and every sample lies within half a diagonal (under a tile) of the
+        centre, so a corridor that fails this has no sample within reach."""
+        n = self.n
+        cx = i * self.tile + (n // 2) * self.spacing
+        cy = j * self.tile + (n // 2) * self.spacing
+        _, v, _ = c.uv(np.array([cx]), np.array([cy]))
+        return not (v.size and abs(v[0]) > c.reach + self.tile)
+
     def _uvs(self, i, j):
         """Each corridor's (u, v, near) over tile (i, j)'s samples: one projection a tile, shared
-        by its heights, base road and zones (issue 134)."""
+        by its heights, base road and zones (issue 134). A corridor that cannot reach the tile
+        is not projected (None): no sample is near it (issue 142: projecting every tile on every
+        corridor made the worker's tiles off the road ten times slower, 44 to 424 ms)."""
         X, Y = self._grid(i, j)
-        return [c.uv(X, Y) for c in self.corridors]
+        return [c.uv(X, Y) if self._reaches(c, i, j) else None for c in self.corridors]
 
     def _look(self, i, j, uvs):
         """The tile's base road (`surface_tile` less the detail) and zones, from `uvs`."""
         X, _ = self._grid(i, j)
         base = np.zeros(X.shape)
         zones = np.zeros(X.shape, dtype=np.int8)
-        for c, (u, v, near) in zip(self.corridors, uvs):
+        for c, uvn in zip(self.corridors, uvs):
+            if uvn is None:  # not near anywhere: its base adds nothing, its zones are OUTSIDE
+                continue
+            u, v, near = uvn
             if c.z.any() or c.section_in_base:
                 base = np.where(near.reshape(X.shape), c.surface_base(u, v).reshape(X.shape),
                                 base)
@@ -577,11 +593,14 @@ class Detail:
         out = np.zeros(X.shape)
         for ci, c in enumerate(self.corridors):
             # a corridor that reaches nowhere near this tile adds nothing
-            cx, cy = xs[n // 2], ys[n // 2]
-            u, v, near = c.uv(np.array([cx]), np.array([cy]))
-            if v.size and abs(v[0]) > c.reach + self.tile:
+            if uvs is not None:
+                if uvs[ci] is None:
+                    continue
+                u, v, near = uvs[ci]
+            elif not self._reaches(c, i, j):
                 continue
-            u, v, near = uvs[ci] if uvs is not None else c.uv(X, Y)
+            else:
+                u, v, near = c.uv(X, Y)
             if not near.any():
                 continue
             u, v, near = u.reshape(X.shape), v.reshape(X.shape), near.reshape(X.shape)
