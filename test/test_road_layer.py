@@ -122,18 +122,24 @@ class Travel(unittest.TestCase):
 
 
 class Layer(unittest.TestCase):
-    def car(self, z0=0.0, grade=0.0, x=10.0):
-        """A vehicle standing at rest on a base of `grade`, PhysX's frame raised (R2)."""
+    def car(self, z0=0.0, grade=0.0, x=10.0, radius=None):
+        """A vehicle standing at rest on a base of `grade`, PhysX's frame raised (R2). With
+        `radius` (m; > 0 a crest, < 0 a sag) the base is a vertical curve, `grade` its slope at
+        the car's middle, the hits on the curve (issue 158)."""
         p = params(0.2 + road_layer.PX_EXTRA)
         (_, _), sag = p.suspension()
         frame_z = p.wheel_radius + p.travels()[0] - sag
         pitch = -math.atan(grade)
         q = (math.cos(pitch / 2), 0.0, math.sin(pitch / 2), 0.0)
+        xm = x + p.wheel_base / 2 * math.cos(pitch)
+
+        def z_at(hx):
+            dz = 0.0 if radius is None else -(hx - xm) ** 2 / (2 * radius)
+            return z0 + grade * hx + dz
         hits = []
         for f, side in road_layer.ORDER:
             hx = x + (p.wheel_base if f else 0.0) * math.cos(pitch)
-            hits.append(SimpleNamespace(on_ground=True, position=(hx, side * 0.83,
-                                                                  z0 + grade * hx)))
+            hits.append(SimpleNamespace(on_ground=True, position=(hx, side * 0.83, z_at(hx))))
         pos = (x, 0.0, z0 + grade * x + frame_z / math.cos(pitch) - frame_z)
         return SimpleNamespace(path="/ego", p=p, last=(pos, q, (0.0, 0.0, 0.0)), contacts=hits,
                                wheel_paths=[0] * 4, tire_angle=0.0, bump_enabled=True)
@@ -158,6 +164,69 @@ class Layer(unittest.TestCase):
         for i in range(4):
             self.assertAlmostEqual(layer.scale("/ego", i), 1.0, delta=0.05)
         layer.close()
+
+    def settled(self, features, **car):
+        """The forces after 30 steps of a stand-in car on a corridor with `features`."""
+        c = road_layer.parse({"corridors": [dict({"centreline": [[0, 0], [200, 0]],
+                                                  "roughness": {"gd0": 1e-14},
+                                                  "section": {"crown": 0.0}}, **features)]})
+        forces = []
+        layer = road_layer.RoadLayer(c, apply_force=lambda *a: forces.append(a), workers=0)
+        v = self.car(**car)
+        for _ in range(30):
+            forces.clear()
+            layer.before_substep([v], DT)
+        car_ = layer.cars["/ego"]
+        load, xy = car_.last_out["load"].copy(), car_.last_xy.copy()
+        layer.close()
+        return [f[1] for f in forces], load, xy
+
+    def test_a_grade_alone_pushes_nothing_along_the_road(self):
+        """Issue 158: on a bare corridor the push along the road is 0 at any grade, on a crest
+        and in a sag; PhysX carries the base road's grade, the layer only the detail's."""
+        cases = [dict(grade=g) for g in (0.0, 0.06, 0.1, -0.06)]
+        cases += [dict(grade=g, radius=r) for g in (0.0, 0.06) for r in (100.0, -100.0)]
+        for case in cases:
+            forces, _, _ = self.settled({}, z0=5.0, **case)
+            self.assertEqual(len(forces), 4)
+            for f in forces:
+                self.assertLess(math.hypot(f[0], f[1]), 1.0, (case, forces))
+
+    def test_a_bars_push_along_the_road_is_its_own_on_a_grade(self):
+        """Issue 158: the slope the push acts through (the cams' less the base's) over a water
+        bar's flank on a 6 % grade is the level road's: its largest within 1 %, at the place
+        shifted uphill by r sin(grade), where a disc on a grade meets the road, within 1 cm."""
+        from scensim_isaac_world import road_contact as rc
+
+        c = road_layer.parse({"corridors": [{"centreline": [[0, 0], [200, 0]],
+                                             "roughness": {"gd0": 1e-14},
+                                             "section": {"crown": 0.0},
+                                             "water_bars": {"at": [10.0], "angle": 0.0,
+                                                            "height": 0.05}}]})
+        layer = road_layer.RoadLayer(c, workers=0)
+        r = 0.37
+        tc = rc.TireContact([rc.Corner(413.6, 41.8e3, 3.74e3, 0.2, r, 0.235)])
+        xs = np.arange(9.70, 10.30, 0.002)
+        hd = np.array([[1.0, 0.0]])
+        peaks = []
+        for g in (0.0, 0.06):
+            def height(x, y, g=g):
+                return g * np.asarray(x) + layer.height(x, y)
+
+            def base(x, y, g=g):
+                return g * np.asarray(x) + 0.0 * np.asarray(y)
+            sl = []
+            for x in xs:
+                xy = np.array([[x, -0.83]])
+                s, _, slope = tc.envelope(height, xy, hd, 0.0)
+                sl.append(float(slope[0, 0] - tc.base_slope(base, xy, hd, s)[0, 0]))
+            k = int(np.argmax(sl))
+            peaks.append((sl[k], xs[k]))
+        layer.close()
+        (p0, x0), (p6, x6) = peaks
+        self.assertGreater(p0, 0.2)  # the bar's rising flank
+        self.assertAlmostEqual(p6 / p0, 1.0, delta=0.01, msg=peaks)
+        self.assertAlmostEqual(x0 - x6, r * math.sin(math.atan(0.06)), delta=0.01, msg=peaks)
 
     def test_a_bar_under_a_wheel_pushes_it_up(self):
         c = road_layer.parse({"corridors": [{"centreline": [[0, 0], [200, 0]],

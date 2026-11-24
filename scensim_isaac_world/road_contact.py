@@ -23,7 +23,8 @@ moving on at its velocity from the step's start. What it returns per wheel is wh
 corner does not already apply: the suspension force on the body less the force PhysX's spring
 and damper give on the base road at the same body motion (`dfz`, at the wheel's centre, along
 world z), and the effective plane's push back along the wheel's heading (`dfx`, at the
-contact). PhysX's spring sees the body's motion as ours does, so in the linear range the
+contact), from the detail's slope only: the base road's own slope is PhysX's (issue 158).
+PhysX's spring sees the body's motion as ours does, so in the linear range the
 difference does not depend on the body at all: it is the spring and damper across the wheel's
 offset from where PhysX puts it. The tire's load (`load`) goes to PhysX's tire through its
 friction (`friction_scale`): PhysX's tire saturates at mu times its own load.
@@ -173,6 +174,28 @@ class TireContact:
         h = np.asarray(height(px, py), dtype=float) * np.ones(px.shape)
         return s, q, h
 
+    def cam_stations(self, s):
+        """The along-heading stations (m from the contact) of the first and last cams at each
+        `s`, as `envelope` rounds them to its DU grid: (first, last), each len(s)."""
+        m = len(self.lift_u)
+        c0 = -(float(self.lift_u[-1]) + self.ls / 2) + (m - 1) // 2 * DU
+        st = [c0 + np.rint((s + a - c0) / DU) * DU for a in (self.along[0], self.along[-1])]
+        return st[0], st[-1]
+
+    def base_slope(self, base, xy, heading, s):
+        """The base road's slope as the cams read it (issue 158): its height at the last cam's
+        station less the first's, over the cams' spacing, (n, len(s)). On a plane the cams'
+        disc envelope is the plane raised by a constant, so this is exactly their slope there,
+        the rounding of their stations included."""
+        first, last = self.cam_stations(s)
+        hx, hy = heading[:, 0, None], heading[:, 1, None]
+
+        def at(d):
+            return np.asarray(base(xy[:, 0, None] + hx * d[None, :],
+                                   xy[:, 1, None] + hy * d[None, :]), dtype=float) \
+                * np.ones((len(xy), len(s)))
+        return (at(last) - at(first)) / self.ls
+
     def envelope(self, height, xy, heading, span):
         """The effective road along each wheel's path over the step: s on a DU grid from 0 to
         `span` (`samples`), the effective height (n, len(s)) and slope (n, len(s))."""
@@ -232,6 +255,11 @@ class TireContact:
         else:
             s, w, slope = self.envelope(height, xy, hd, span)
             FS, FT, COMP, J, S = self._wheels(w, slope, d_in, ZA, v_att, h)
+        # issue 158: the push along the road is the detail's slope only. The cams read the true
+        # road, base and detail, so their slope holds the base's grade, which PhysX already
+        # carries (the body on it, gravity along it); the base's slope as the cams read it
+        # (`base_slope`), taken out, leaves the detail's.
+        S = S - _at(self.base_slope(base, xy, hd, s), d_in)
         out = {"dfz": (FS - FP).mean(axis=1), "dfx": -(FT * S).mean(axis=1) * sgn,
                "load": FT.mean(axis=1), "px_load": FP.mean(axis=1),
                "airborne": (FT <= 0).mean(axis=1),
