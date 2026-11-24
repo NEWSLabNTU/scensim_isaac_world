@@ -45,6 +45,21 @@ class Ahead(unittest.TestCase):
         finally:
             d.close()
 
+    def test_the_row_entering_the_reach_is_asked_for_a_tile_before(self):
+        c = winding()
+        lay = road_layer.RoadLayer([c], workers=0)
+        d = lay.detail
+        try:
+            for k in range(0, 600, 60):
+                x, y = (float(v) for v in c.centreline[k][:2])
+                got = lay._ahead(car(x, y))
+                for dx, dy in ((d.tile, 0.0), (-d.tile, 0.0), (0.0, d.tile), (0.0, -d.tile)):
+                    nxt = {q for q in d.tiles_near([x + dx], [y + dy], road_layer.AROUND)
+                           if d.touches(*q)}
+                    self.assertLessEqual(nxt, got, (k, dx, dy))
+        finally:
+            d.close()
+
     def test_tiles_off_every_corridor_are_not_asked_for(self):
         c = winding()
         lay = road_layer.RoadLayer([c], workers=0)
@@ -52,7 +67,7 @@ class Ahead(unittest.TestCase):
         try:
             x, y = (float(v) for v in c.centreline[300][:2])
             got = lay._ahead(car(x, y))
-            around = d.tiles_near([x], [y], road_layer.AROUND)
+            around = d.tiles_near([x], [y], road_layer.AROUND + d.tile)
             self.assertTrue(all(d.touches(*q) for q in got & around))
         finally:
             d.close()

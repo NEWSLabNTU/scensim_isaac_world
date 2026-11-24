@@ -608,7 +608,7 @@ class RoadLayer:
         bend came only once the car had turned); the heading's straight line when no corridor
         is near. The heading is the velocity's above 1 m/s, the body's yaw below it (at rest a
         velocity's direction is noise), and the car's own place is always in. With them, every
-        tile within AROUND of the car that touches a corridor (issue 147)."""
+        tile within AROUND and one tile more of the car that touches a corridor (issue 147)."""
         from aib.frames import qrot
 
         (px, py, _), q, (vx, vy, _) = v.last
@@ -638,10 +638,11 @@ class RoadLayer:
             ys.append(y + hy * reach * s)
         d = self.detail
         ahead = d.tiles_near(np.concatenate(xs), np.concatenate(ys), 6.0)
-        # and every tile within the frame end's reach that touches a corridor, as `ready_around`
-        # asks (issue 147: those beside the road were asked for only by the frame's end, which
-        # then waited for them)
-        return ahead | {k for k in d.tiles_near([x], [y], AROUND) if d.touches(*k)}
+        # and every tile that touches a corridor within the frame end's reach plus one tile, so
+        # the row of tiles that enters that reach as the car crosses into the next tile is asked
+        # for a tile's travel before (issue 147: asked for at the reach itself, it was asked for
+        # at the frame whose end then waited for it)
+        return ahead | {k for k in d.tiles_near([x], [y], AROUND + d.tile) if d.touches(*k)}
 
     def scale(self, path, i):
         car = self.cars.get(path)
