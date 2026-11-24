@@ -78,37 +78,11 @@ class Profile(unittest.TestCase):
             self.assertIn(speed, cc.REF_WB if name == "washboard" else cc.REF_CC, case)
 
 
-# A corridor with every feature but a profile: its heights' sha256 at siw 7813843 (before
-# 086 C6c's profiles), computed with numpy 1.21 (the gate host's, Jammy's). Another numpy may
-# round the roughness's FFT differently, so the test runs on that numpy only.
-GOLDEN = "f76f2041b871e556b5428d5cd322650faf44ddf0ab1efafdb54a193de0754b8b"
-GOLDEN_NUMPY = "1.21"
-
-
-class Unchanged(unittest.TestCase):
-    @unittest.skipUnless(np.__version__.startswith(GOLDEN_NUMPY + "."),
-                         f"the golden hash is numpy {GOLDEN_NUMPY}'s")
-    def test_a_corridor_without_profiles_is_byte_identical_to_before(self):
-        """The heights of a corridor without `profiles` equal, byte for byte, siw 7813843's (before
-        086 C6c). Pinned to numpy GOLDEN_NUMPY and skipped elsewhere, so the guarantee holds on
-        the gate host only; a version-independent form (asserting the profile path is not entered
-        for such a corridor) is a follow-up (133, 2026-11-25)."""
-        import hashlib
-        c, = road_layer.parse({"corridors": [{
-            "centreline": [[0, 0], [120, 0], [200, 40]], "seed": 7, "ruts": {}, "potholes": {},
-            "water_bars": {}, "cleats": {"at": [[30.0, 0.05, 0.2]]},
-            "washboard": [{"u0": 60.0, "u1": 90.0}]}]})
-        self.assertEqual(c.profiles, ())
-        d = rd.Detail([c], workers=0)
-        x, y = np.meshgrid(np.arange(-10, 210, 0.37), np.arange(-15, 60, 0.41))
-        h = np.asarray(d.height(x, y), dtype=np.float64)
-        self.assertEqual(hashlib.sha256(h.tobytes()).hexdigest(), GOLDEN)
-
-
 class NoProfilePath(unittest.TestCase):
-    """086 C6c's profiles, version-independent (133): a corridor without `profiles` never enters
-    the profile code, so its tiles are what they were before C6c on any numpy. `Unchanged` above
-    holds the heights to 7813843's bytes on the gate host's numpy only."""
+    """086 C6c's profiles (133; issue 162): a corridor without `profiles` never enters the profile
+    code, so its tiles are what they were before C6c on any host. This replaces a golden hash of
+    the heights at 7813843, which held on one host only: the roughness's FFT and BLAS round
+    differently across CPUs (issue 162)."""
 
     def test_a_corridor_without_profiles_never_reaches_the_profile_code(self):
         def refuse(*a, **k):
