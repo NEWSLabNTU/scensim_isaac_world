@@ -194,5 +194,30 @@ class Ahead(unittest.TestCase):
         lay.detail.close()
 
 
+class Grid(unittest.TestCase):
+    """Step (iv): a call's segments from a grid, not every segment (the rocks' many small sets)."""
+
+    def test_small_sets_near_and_far_are_the_plain_loops(self):
+        c = winding(3000)
+        rng = np.random.default_rng(142)
+        lo, hi = c.centreline.min(axis=0) - 200, c.centreline.max(axis=0) + 200
+        every = lambda self, p, among=None: range(len(self.seg_len))  # noqa: E731
+        for _ in range(300):
+            n = int(rng.integers(1, 60))
+            centre = rng.uniform(lo, hi) if rng.random() < 0.3 else \
+                c.centreline[int(rng.integers(len(c.centreline)))] + rng.normal(0, 5, 2)
+            p = centre + rng.normal(0, rng.uniform(0.1, 6.0), (n, 2))
+            got = c.uv(p[:, 0], p[:, 1])
+            with mock.patch.object(rd.Corridor, "_candidates", every):
+                want = c._uv(p)
+            for a, b in zip(got, want):
+                np.testing.assert_array_equal(a, b)
+
+    def test_a_small_set_keeps_few_segments(self):
+        c = winding(3000)
+        p = c.centreline[1500] + np.array([[0.0, 0.0], [1.0, 1.0]])
+        self.assertLess(len(c._near_segments(p)), 200)
+
+
 if __name__ == "__main__":
     unittest.main()

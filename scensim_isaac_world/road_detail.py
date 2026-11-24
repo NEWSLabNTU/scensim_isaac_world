@@ -413,6 +413,53 @@ class Corridor:
             v = np.where(better, cross, v)
         return u, v, best_d <= self.reach
 
+    GRID = 16.0  # m: the segment grid's cells (issue 142)
+
+    def _segs_in(self, lo, hi):
+        """The segments whose bounding boxes meet the cells covering [lo, hi], in order; None
+        when that is more than 400 cells (then every segment)."""
+        g = getattr(self, "_grid_index", None)
+        if g is None:
+            a, b = self.centreline[:-1], self.centreline[1:]
+            c0 = np.floor(np.minimum(a, b) / self.GRID).astype(np.int64)
+            c1 = np.floor(np.maximum(a, b) / self.GRID).astype(np.int64)
+            cells = {}
+            for k in range(len(a)):
+                for i in range(c0[k, 0], c1[k, 0] + 1):
+                    for j in range(c0[k, 1], c1[k, 1] + 1):
+                        cells.setdefault((i, j), []).append(k)
+            g = self._grid_index = {key: np.array(v) for key, v in cells.items()}
+        i0, j0 = np.floor(np.asarray(lo) / self.GRID).astype(np.int64)
+        i1, j1 = np.floor(np.asarray(hi) / self.GRID).astype(np.int64)
+        if (i1 - i0 + 1) * (j1 - j0 + 1) > 400:
+            return None
+        parts = [g[(i, j)] for i in range(i0, i1 + 1) for j in range(j0, j1 + 1) if (i, j) in g]
+        return np.unique(np.concatenate(parts)) if parts else np.zeros(0, np.int64)
+
+    def _near_segments(self, p):
+        """A superset of the segments that can be nearest to some point of `p`, from the grid
+        (issue 142: rocks' placement projects hundreds of small sets of points a tile, and each
+        took a pass over every segment): a first bound from the segments around the points,
+        then every segment within it. The cull after it is exact over any such superset."""
+        lo, hi = p.min(axis=0), p.max(axis=0)
+        r, seed = self.GRID, None
+        while True:
+            seed = self._segs_in(lo - r, hi + r)
+            if seed is None:
+                return np.arange(len(self.seg_len))
+            if len(seed):
+                break
+            r *= 4.0  # far from the road: look wider
+        a, dr, ln = self.centreline[seed], self.seg_dir[seed], self.seg_len[seed]
+        far = np.zeros(len(seed))
+        for c in ((lo[0], lo[1]), (lo[0], hi[1]), (hi[0], lo[1]), (hi[0], hi[1])):
+            rel = np.asarray(c) - a
+            t = np.clip(np.einsum("ij,ij->i", rel, dr), 0.0, ln)
+            far = np.maximum(far, np.hypot(*(np.asarray(c) - (a + t[:, None] * dr)).T))
+        bound = float(far.min()) + 1e-6
+        out = self._segs_in(lo - bound, hi + bound)
+        return np.arange(len(self.seg_len)) if out is None else out
+
     def _candidates(self, p, among=None):
         """The segments that can be nearest to some point of `p` (issue 128): D, the least over
         the segments of the farthest corner of p's bounding box from the segment, bounds every
@@ -423,7 +470,7 @@ class Corridor:
         elif not len(p) or len(self.seg_len) < 64:
             return range(len(self.seg_len))
         else:
-            among = np.arange(len(self.seg_len))
+            among = self._near_segments(p)
         if not len(p):
             return among
         a, b = self.centreline[among, :2], self.centreline[among + 1, :2]
