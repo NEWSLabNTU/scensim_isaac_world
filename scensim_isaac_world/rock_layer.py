@@ -78,6 +78,32 @@ COLL_ROOT = "/World/RoadCollision"
 
 
 BASE_CHECK_S = 1.0  # issue 123's self-check: each rock's first second awake
+# Issue 145: PhysX fixes a collider's filtering when it takes the collider in, at the first physics
+# step that sees it, and a group membership written afterwards is ignored (issue 123 met the same
+# rule for `roadBase`). So every collider made here must be in its group before control returns to
+# the caller, which steps next. Strict (tests): raise IntakeError; otherwise a WARN per collider.
+INTAKE_STRICT = False
+
+
+class IntakeError(RuntimeError):
+    """A collider left outside its collision group when the next physics step can take it in."""
+
+
+def intake_check(paths, where, strict=None):
+    """Issue 145's self-check: `paths` maps each collider made and not yet in its group to that
+    group. Raises IntakeError when strict (INTAKE_STRICT), else logs each as a WARN. Returns the
+    number found."""
+    if not paths:
+        return 0
+    msg = ("issue 145: %d collider(s) not in their collision group before the next physics step "
+           "(%s), so PhysX takes them in without the group's filter: %s" %
+           (len(paths), where, ", ".join(f"{p} (not in {g})" for p, g in sorted(paths.items()))))
+    if INTAKE_STRICT if strict is None else strict:
+        raise IntakeError(msg)
+    for p, g in sorted(paths.items()):
+        log.warning("issue 145: collider %s is not in %s before the next physics step (%s): "
+                    "PhysX takes it in without that group's filter", p, g, where)
+    return len(paths)
 
 
 def define_groups(stage, groups="/World/vehicleCollisionGroups"):
@@ -171,6 +197,9 @@ class DetailColliders:
                 .GetCollidersCollectionAPI().GetIncludesRel()
             keep = [str(t) for t in rel.GetTargets() if str(t) not in self.drops]
             rel.SetTargets([Sdf.Path(t) for t in keep + sorted(self.adds - set(keep))])
+            have = {str(t) for t in rel.GetTargets()}
+            intake_check({p: self.group for p in self.adds if p not in have},
+                         "DetailColliders.update")
             self.adds, self.drops = set(), set()
 
     def remove(self):
@@ -264,6 +293,10 @@ class RockStream:
         (adds if on else drops).add(str(path))
         (drops if on else adds).discard(str(path))
 
+    def _unjoined(self):
+        """The colliders made and not yet written into their group (issue 145)."""
+        return {p: g for g, (adds, _) in self.pending.items() for p in adds}
+
     def _flush_groups(self):
         from pxr import Sdf, UsdPhysics
 
@@ -298,6 +331,7 @@ class RockStream:
             self.colliders.update(points)
         self._stream_rocks(xs, ys, points)
         self._flush_groups()
+        intake_check(self._unjoined(), "RockStream.update")
         self._activate(points)
 
     def _stream_rocks(self, xs, ys, points):
@@ -488,9 +522,12 @@ class RockStream:
                     self.pool.setdefault(key, []).append(path)
                     n += 1
                 self.reserved[key] = max(want, self.reserved.get(key, 0))
-        # the pool's prims join `rocks` at the next frame's end (`update`), as a live rock does:
-        # made and grouped in one step, omni.physx took each for one in two groups and warned
-        # so, once a prim (issue 123: 769 warnings at a load)
+        # The pool's prims join `rocks` now, before the next physics step takes them in (issue
+        # 145): PhysX fixes a collider's filtering at intake, so a pool that joined at the next
+        # frame's end (as issue 123 left it, against its 769 warnings) was never filtered from
+        # `roadBase` or `groundQuery`, and every pool rock woken met the base.
+        self._flush_groups()
+        intake_check(self._unjoined(), "RockStream.reserve")
         self.made -= n  # the drive's count, not the pool's
         self.prewarmed += n
         self.reserved_for = max(vehicles, self.reserved_for)

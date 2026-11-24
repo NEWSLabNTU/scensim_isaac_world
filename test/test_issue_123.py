@@ -1,6 +1,6 @@
 """Issue 123: the road's collision groups made before the simulation starts, by the world as
-by the rock stream (with a stand-in for pxr), and the rock pool's prims joining their group at
-a frame's end rather than as they are made; no Isaac."""
+by the rock stream (with a stand-in for pxr), and the rock pool's prims joining their group
+before the next physics step (issue 145); no Isaac."""
 import os
 import sys
 import unittest
@@ -97,9 +97,10 @@ class DefineGroups(unittest.TestCase):
 
 
 class Pool(unittest.TestCase):
-    def test_the_pool_joins_its_group_at_a_frames_end(self):
-        """Made and grouped in one step, omni.physx warned for each pool prim (769 at a
-        load); the pool's paths now wait in `pending` for the next frame's end."""
+    def test_the_pool_joins_its_group_before_reserve_returns(self):
+        """Issue 145: the pool's prims are written into `rocks` before the next physics step;
+        joining at the next frame's end (issue 123's way, against its 769 warnings) left them
+        unfiltered, since PhysX fixes a collider's filtering when it takes it in."""
         from scensim_isaac_world import road_detail as rd
 
         c = rd.Corridor(np.array([[0.0, 0.0], [2000.0, 0.0]]), seed=5,
@@ -109,6 +110,7 @@ class Pool(unittest.TestCase):
         s.pool, s.reserved, s.reserved_for, s.prewarm_ms = {}, {}, 0, []
         s.made, s.prewarmed, s.serial, s.pending = 0, 0, 0, {}
         s.rock_g = f"{G}/rocks"
+        written = []
 
         def new_prim(r, pos, quat):
             s.serial += 1
@@ -116,13 +118,18 @@ class Pool(unittest.TestCase):
             s._group(s.rock_g, f"/p{s.serial}", True)
             return f"/p{s.serial}"
 
+        def flush():
+            written.extend(s.pending.get(s.rock_g, (set(), set()))[0])
+            s.pending.clear()
+
         s._new_prim = new_prim
         s._park = lambda *a: None
-        s._flush_groups = mock.Mock()
-        n = s.prewarm()
+        s._flush_groups = flush
+        with mock.patch.object(rock_layer, "INTAKE_STRICT", True):
+            n = s.prewarm()
         self.assertGreater(n, 0)
-        s._flush_groups.assert_not_called()
-        self.assertEqual(len(s.pending[s.rock_g][0]), n)
+        self.assertEqual(len(written), n)  # all of them, before prewarm returned
+        self.assertEqual(s._unjoined(), {})
 
 
 class BaseCheck(unittest.TestCase):
