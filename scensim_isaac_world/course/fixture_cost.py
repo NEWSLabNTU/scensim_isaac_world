@@ -168,6 +168,7 @@ def main():
                           truth_settings=rig.component.get("truth"))
             cars.append({"veh": veh, "state": State(), "lane": lane, "i": 0.0,
                          "cmd": Command(received=True, gear=GEAR_DRIVE)})
+            layer.placed(veh.path, pose)  # its tiles and rocks before the first step (issue 142)
 
         t, frame_ms, contact_ms, flush_ms, tiles, first_ms = 0.0, [], [], [], [], []
         total = int(WARMUP_S / FRAME) + FRAMES
