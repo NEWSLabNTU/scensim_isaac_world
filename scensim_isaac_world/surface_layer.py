@@ -63,6 +63,11 @@ KINEMATIC_BASE, KINEMATIC_TREAD = 0.6, 0.85
 KINEMATIC_RADIUS, KINEMATIC_WIDTH = 0.33, 0.2
 KINEMATIC_JUMP = 5.0  # m in one frame: a teleport (100 m/s at 20 Hz)
 PLACE_ROCK_FRAMES = 1000  # rock stream updates at most when a car is placed (issue 142)
+# The most a frame's end waits for the road's tiles within the rocks' and the collision tiles'
+# reach of every car (issue 144): a run stepped faster than real time otherwise got its rocks and
+# collision tiles when the tile worker, on the wall clock, had made them, so not reproducibly.
+# A run at real time waits about nothing; a faster one slows to the worker's pace.
+FRAME_WAIT_S = 2.0
 # The soil's motion resistance is full from this speed up and fades to none at rest, m/s: it
 # opposes motion that happens, it never pushes a car standing still (docs/issues/004).
 RESIST_V0 = 0.1
@@ -157,6 +162,8 @@ class SurfaceLayer:
         self.near = []  # the egos' positions at the last place, for the road's meshes
         self.near_pose = []  # and their (x, y, yaw), for the road's rocks
         self.pose_of = {}  # vehicle path -> its entry of near_pose (issue 142's `placed`)
+        self.wait_ms = []  # per frame end, the wait for the tiles in reach (issue 144)
+        self.wait_missed = 0  # tiles still not ready when a frame's wait ran out
         if make_tiles is not None:
             for z in surface_map.zones:
                 if z.ground_z is not None:
@@ -535,6 +542,7 @@ class SurfaceLayer:
         out = {}
         if self.road_meshes is not None:
             self.road_meshes.update(self.near)
+        self._wait_for_tiles()
         if self.road_colliders is not None:  # before the rocks, which rest on them
             self.road_colliders.update(self.near_pose)
         if self.road_rocks is not None:
@@ -547,6 +555,29 @@ class SurfaceLayer:
                 if done:
                     out[zid] = done
         return out
+
+    def _wait_for_tiles(self):
+        """Issue 144: before the collision tiles and the rocks are updated, the road's tiles
+        within their reach of every car made, with their rocks' placement, waiting at most
+        FRAME_WAIT_S. Which tiles and rocks a frame has then depends on where the cars are, not on
+        how far the tile worker has got on the wall clock. Tiles still not ready are logged."""
+        if self.road is None or not self.near_pose or \
+                (self.road_colliders is None and self.road_rocks is None):
+            return
+        import time
+
+        from scensim_isaac_world import rock_layer
+
+        reach = max(rock_layer.ROCK_REACH, rock_layer.COLLISION_REACH)
+        t0 = time.perf_counter()
+        left = self.road.ready_around([(p[0], p[1]) for p in self.near_pose], reach,
+                                      timeout=FRAME_WAIT_S)
+        self.wait_ms.append((time.perf_counter() - t0) * 1e3)
+        if left:
+            self.wait_missed += len(left)
+            log.warning("issue 144: %d road tile(s) within %.0f m of a car not ready after %.1f s; "
+                        "this frame's rocks and collision tiles depend on the wall clock: %s",
+                        len(left), reach, FRAME_WAIT_S, left[:8])
 
     def remove_tiles(self):
         """The zones' own ground off the stage (another world is loading)."""
