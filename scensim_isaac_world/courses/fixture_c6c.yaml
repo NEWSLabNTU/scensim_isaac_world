@@ -1,0 +1,35 @@
+# Roadmap 086 C6c's fixture course: C6a's washboard, swept over speed, and an ISO 8608 class C
+# profile, as the road layer's features on a record course, a road made up to test the wheel
+# hop in Isaac, not a place. Built by the course builder as any course is (`python3 -m
+# scensim_isaac_world.course courses/fixture_c6c.yaml <map dir>`); driven by
+# `course.fixture_drive --fixtures c6c`, judged by `course.c6c_check`.
+name: fixture_c6c
+# A fixture's arbitrary datum, so the map frame and Autoware's projector work as for a real
+# course. It names no place: nothing here was measured there.
+origin: {lat: 36.0, lon: 140.0, alt: 0.0}
+road:
+  lanes: 2
+  lane_width: 3.25
+  shoulder: 0.75
+margin: 40.0
+speed_limit_kmh: 80
+fixture:
+  grade: 0.0
+  terrain_below: 0.30
+  crown: 0.02
+  plan:
+    - {straight: 800.0}
+  section:
+    columns: [s, lip_h_right]
+    rows:
+      - [0.0, 0.0]
+      - [800.0, 0.0]
+  # s from 0 (the record's u): 30 m of C6a's washboard (2 cm peak to peak, 0.7 m pitch, no
+  # skew) from 150 m; 400 m of class C profile (road_detail.Profile's defaults: seed 1, 0.01 m
+  # samples, 0.011-2.83 cycle/m, 14.3 mm rms) from 300 m, the same under both tracks
+  features:
+    # no roughness but the profile's (the layer's default is ISO class D; a gd0 of 0 falls
+    # back to it, so a negligible one)
+    roughness: {gd0: 1.0e-12}
+    washboard: [{u0: 150.0, u1: 180.0, height: 0.02, pitch: 0.7, skew: 0.0}]
+    profiles: [{u0: 300.0, length: 400.0, seed: 1}]

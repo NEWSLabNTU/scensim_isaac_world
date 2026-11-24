@@ -14,7 +14,8 @@ Each case starts at rest RUNUP m before its fixture on the left lane's middle, d
 speed, is checked at speed CHECK_AT m before the fixture (speed within START_SPEED_TOL, lateral
 offset within START_OFFSET_TOL; else refused, not judged), and ends AFTER m past the fixture.
 Writes `fixture.csv` (per PhysX step, `case` its name) and `cases.json`, which `fixture_check`
-reads:
+reads, and `inner.csv` (086 C6c: the front-left tire load at each of our contact's inner steps),
+which `c6c_check` reads with `--fixtures c6c` (`courses/fixture_c6c.yaml`):
 
     python -m scensim_isaac_world.course.fixture_drive --map <map dir> --out <dir>
         [--query raycast|sweep] [--cases cleat_10@10,...]
@@ -65,6 +66,11 @@ CASES = ["cleat_05@10", "cleat_10@10", "cleat_15@10", "pothole@10", "washboard@1
 FIXTURES_C6B = {"embedded_15": (100.0, 0.3), "loose_15": (200.0, 0.3), "loose_8": (300.0, 0.2),
                 "boulder_35": (400.0, 0.8)}
 CASES_C6B = ["embedded_15@11.11", "loose_15@11.11", "loose_8@11.11", "boulder_35@2.78"]
+# 086 C6c's fixture course (`courses/fixture_c6c.yaml`): C6a's washboard swept over speed
+# (5-20 m/s: 7.1-28.6 Hz on its 0.7 m pitch), and the class C profile at 10 and 20 m/s
+FIXTURES_C6C = {"washboard": (150.0, 30.0), "class_c": (300.0, 400.0)}
+CASES_C6C = [f"washboard@{v}" for v in (5, 7, 8, 9, 10, 12, 14, 20)] + ["class_c@10",
+                                                                         "class_c@20"]
 STUCK_S = 3.0  # s under 0.1 m/s past a fixture's face less 3 m: the case ends (high-centred)
 
 
@@ -205,14 +211,16 @@ def main():
                     help="issue 123: the parked-rock pool as it is, none, or its group a step late")
     ap.add_argument("--rocks-on-base", action="store_true",
                     help="issue 122's test: no collision tiles, the rocks on the base mesh")
-    ap.add_argument("--fixtures", choices=("c6a", "c6b"), default="c6a",
-                    help="the course's fixtures: C6a's cleats or C6b's rocks")
+    ap.add_argument("--fixtures", choices=("c6a", "c6b", "c6c"), default="c6a",
+                    help="the course's fixtures: C6a's cleats, C6b's rocks or C6c's washboard "
+                    "and class C profile")
     ap.add_argument("--rocks", default="", help="shoulder,runoff,ditch rock cover put on every "
                     "corridor, the carriageway's 0 (086 C6b; default: the course's own)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    fixtures = FIXTURES_C6B if a.fixtures == "c6b" else FIXTURES
-    cases = a.cases.split(",") if a.cases else (CASES_C6B if a.fixtures == "c6b" else CASES)
+    fixtures = {"c6a": FIXTURES, "c6b": FIXTURES_C6B, "c6c": FIXTURES_C6C}[a.fixtures]
+    cases = a.cases.split(",") if a.cases else \
+        {"c6a": CASES, "c6b": CASES_C6B, "c6c": CASES_C6C}[a.fixtures]
 
     from scensim_isaac_world import road_detail as rd
     from scensim_isaac_world import road_layer, surfaces
@@ -358,6 +366,10 @@ def main():
         header += ["zu0", "rocks_loaded", "rock_prims", "rocks_awake", "rock_x", "rock_y", "rock_z",
                    "rock_speed"]
 
+        # 086 C6c: the front-left wheel's tire load at each of our contact's inner steps (480 Hz
+        # at 60 Hz), with its hub's s, to inner.csv
+        inner_rows = []
+
         # issue 122: each push on a rock as rocks.limit sees it, and the case's rock's contacts
         push_rows, cur = [], {"case": "", "n": 0}
         if a.trace_push and layer.road_rocks is not None:
@@ -473,7 +485,7 @@ def main():
                 cmd = Command(received=True, gear=GEAR_DRIVE)
                 t, n, err_sum, checked = 0.0, 0, 0.0, False
                 fixture_xy, found, still = xy_at(fs + flen / 2, LANE)[0], None, 0.0
-                while t < 60.0:
+                while t < 60.0 + (flen + AFTER) / speed:  # C6c's 400 m profile takes 40 s
                     pos = np.array(state.position[:2])
                     s_now, v_now = uv(*pos)
                     if s_now >= fs + flen + AFTER:
@@ -519,6 +531,8 @@ def main():
                         air = [round(float(x), 3) for x in o["airborne"]] if o else [""] * 4
                         if o is not None:
                             fl_s = round(uv(*car.last_xy[0])[0], 4)
+                            inner_rows.append([case, n, fl_s, *[round(float(x), 1)
+                                                                for x in o["load_inner"][0]]])
                             fl_z = round(float(car.z_att_prev[0]), 5)
                         else:
                             fl_s = fl_z = ""
@@ -548,6 +562,12 @@ def main():
                                  "scale", "fh_out", "v_rock", "contact_fn", "contact_ft",
                                  "contact_with"])
                     wr.writerows(push_rows)
+            if inner_rows:
+                with open(os.path.join(a.out, "inner.csv"), "w", newline="") as f:
+                    wr = csv.writer(f)
+                    wr.writerow(["case", "step", "fl_s"]
+                                + [f"load_in{i}" for i in range(len(inner_rows[0]) - 3)])
+                    wr.writerows(inner_rows)
             with open(os.path.join(a.out, "fixture.csv"), "w", newline="") as f:
                 wr = csv.writer(f)
                 wr.writerow(header)

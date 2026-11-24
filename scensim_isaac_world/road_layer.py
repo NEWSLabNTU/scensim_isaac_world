@@ -111,6 +111,8 @@ CORRIDOR_KEYS = {
     "water_bars": "oblique ridges across the road (a mapping; absent: none)",
     "cleats": "box cleats across the carriageway at fixed places, {at: [[u, height, length], "
               "...]} m (086 C6a; absent: none)",
+    "profiles": "a list of random ISO 8608 profiles across the carriageway, each u0 m along the "
+                "centreline, and length, seed, gd0, w, du, ramp (086 C6c; absent: none)",
     "rocks": "rock cover per part of the section (a mapping; absent: no rocks)",
     "taper": "m over which the detail fades in and out at the ends (default 0)",
     "section_in_base": "true when the world's road already carries the section (a course built "
@@ -245,6 +247,25 @@ def parse(data, where=FILE, base=None, notes=None, classes=None):
                                 "centreline)")
                 continue
             zones.append(rd.Washboard(**z))
+        profiles = []
+        pr_fields = _fields(rd.Profile)
+        given_p = c.get("profiles") or []
+        if not isinstance(given_p, list):
+            problems.append(f"{at}.profiles: a list of mappings of {', '.join(pr_fields)}")
+            given_p = []
+        for n, z in enumerate(given_p):
+            if not isinstance(z, dict) or set(z) - set(pr_fields) or "u0" not in z:
+                problems.append(f"{at}.profiles[{n}]: a mapping of {', '.join(pr_fields)}, "
+                                "u0 required (m along the centreline)")
+                continue
+            if any(not isinstance(v, (int, float)) for v in z.values()) or \
+                    float(z.get("length", 1.0)) <= 0 or float(z.get("du", 1.0)) <= 0:
+                problems.append(f"{at}.profiles[{n}]: numbers, length and du over 0")
+                continue
+            profiles.append(rd.Profile(**{k: (int(v) if k == "seed" else float(v))
+                                          for k, v in z.items()}))
+        if profiles:
+            args["profiles"] = tuple(profiles)
         if "roughness" in args and args["roughness"].cls not in rd.ISO_CLASS \
                 and not args["roughness"].gd0:
             problems.append(f"{at}.roughness: class {args['roughness'].cls} is not ISO 8608's "

@@ -263,6 +263,52 @@ class Cleats:
     at: tuple = ()
 
 
+def iso8608_profile(seed, length, du=0.01, gd0=256e-6, w=2.0, n0=0.1, band=(0.011, 2.83)):
+    """A longitudinal profile with ISO 8608's displacement PSD, Gd(n) = gd0 (n / n0)^-w (class C:
+    gd0 256e-6 m^3), from numpy's `default_rng(seed)`: uniform random phases, band-limited to
+    `band` (cycle/m) and scaled to that band's rms. Heights (m) every `du` m over `length` m
+    (086 C6c; the same function makes its offline reference's profile)."""
+    rng = np.random.default_rng(seed)
+    N = int(round(length / du))
+    n = np.fft.rfftfreq(N, du)[1:]
+    gd = gd0 * (n / n0) ** -w
+    spec = np.zeros(len(n) + 1, complex)
+    spec[1:] = np.sqrt(gd * length / 2.0) * np.exp(2j * np.pi * rng.random(len(n)))
+    h = np.fft.irfft(spec, N)
+    H = np.fft.rfft(h)
+    f = np.fft.rfftfreq(N, du)
+    H[(f < band[0]) | (f > band[1])] = 0
+    h = np.fft.irfft(H, N)
+    inb = (n > band[0]) & (n < band[1])
+    target = math.sqrt(float(np.trapezoid(gd[inb], n[inb]) if hasattr(np, "trapezoid")
+                             else np.trapz(gd[inb], n[inb])))
+    return h * (target / h.std())
+
+
+@dataclass
+class Profile:
+    """A random ISO 8608 profile across the carriageway from u0 for `length` m (086 C6c): both
+    tracks the same, so the car does not roll; it ramps in and out over `ramp` m. The heights
+    are `iso8608_profile`'s for these fields."""
+
+    u0: float
+    length: float = 400.0
+    seed: int = 1
+    gd0: float = 256e-6
+    w: float = 2.0
+    du: float = 0.01
+    ramp: float = 1.0
+
+    def __post_init__(self):
+        self._z = iso8608_profile(self.seed, self.length, self.du, self.gd0, self.w)
+
+    def h(self, u):
+        s = np.asarray(u, dtype=float) - self.u0
+        z = np.interp(s, np.arange(len(self._z)) * self.du, self._z)
+        ramp = np.clip(np.minimum(s, self.length - s) / self.ramp, 0.0, 1.0)
+        return np.where((s >= 0) & (s <= self.length), z * ramp, 0.0)
+
+
 @dataclass
 class Washboard:
     """A corrugation zone from u0 to u1 m along the road: peak-to-peak `height`, wavelength
@@ -322,6 +368,7 @@ class Corridor:
     washboard: tuple = ()
     water_bars: WaterBars = None
     cleats: Cleats = None  # 086 C6a: a fixture's box cleats
+    profiles: tuple = ()  # 086 C6c: random ISO 8608 profiles (Profile)
     grade: object = None
     rocks: object = None  # rocks.Zones: the rock cover by zone (R4); None: no rocks
     taper: float = 0.0
@@ -556,6 +603,8 @@ class Corridor:
                 h = h + np.where(inside & (u >= cu) & (u <= cu + length), height, 0.0)
         for zone in self.washboard:
             h = h + np.where(inside, zone.h(u), 0.0)
+        for prof in self.profiles:
+            h = h + np.where(inside, prof.h(u), 0.0)
         if len(self._bars):
             wb = self.water_bars
             t = math.tan(math.radians(wb.angle))
