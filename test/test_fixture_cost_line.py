@@ -9,6 +9,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from scensim_isaac_world.course import fixture_cost as fc  # noqa: E402
 from scensim_isaac_world.course.fixture_cost import Line, Straight  # noqa: E402
 
 R = 60.0
@@ -46,6 +47,31 @@ class Follow(unittest.TestCase):
         np.testing.assert_allclose(st.xy(20.0, 1.6), np.array([3.0, 4.0]) + 20 * d + 1.6 * n)
         self.assertAlmostEqual(st.s_of(st.xy(20.0, 1.6)), 20.0)
         self.assertEqual(st.heading(5.0), h)
+
+
+class GuardCourse(unittest.TestCase):
+    """Issue 145: the guard's drive covers the whole course, not the first 400 frames (280 m of
+    Haruna's 1527, before its first base contact at about 282 m)."""
+
+    def test_a_course_knows_its_length(self):
+        self.assertAlmostEqual(circle().length, math.pi * R, delta=0.5)
+        self.assertAlmostEqual(Straight(np.array([0.0, 30.0]), np.array([0.0, 40.0])).length, 50.0)
+
+    def test_the_guard_drives_to_the_end_of_harunas_course(self):
+        for speed in (10.0, 13.9):
+            n = fc.guard_frames(1527.0, fc.START, speed)
+            way = fc.START + fc.warm_distance(speed) + n * fc.FRAME * speed
+            self.assertGreaterEqual(way, 1527.0 - fc.END_MARGIN)
+            # and not much beyond: the slack only
+            self.assertLessEqual(way, 1527.0 - fc.END_MARGIN + fc.GUARD_SLACK_S * speed + speed)
+        self.assertGreater(fc.guard_frames(1527.0, fc.START, fc.SPEED), 2 * fc.FRAMES)
+
+    def test_a_short_course_keeps_the_timed_frames(self):
+        self.assertEqual(fc.guard_frames(100.0, fc.START, fc.SPEED), fc.FRAMES)
+
+    def test_the_warm_up_distance(self):
+        self.assertAlmostEqual(fc.warm_distance(10.0), 20.0 + 10.0 * 2.0)  # 4 s ramp, 2 s held
+        self.assertAlmostEqual(fc.warm_distance(20.0), 1.25 * 36.0)  # still ramping at 6 s
 
 
 if __name__ == "__main__":

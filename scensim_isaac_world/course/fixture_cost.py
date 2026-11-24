@@ -8,7 +8,10 @@ s = 40 m, and hold 10 m/s over the cleats and the pothole (the same pursuit and 
 the course's centreline (`Line`) instead of the straight line from its first point to its last:
 a winding course (086 C6b's budget on Haruna). `--guard-ms` (issue 128): exit 1 when a frame of
 the first GUARD_FRAMES (the first tiles around the cars) takes longer, or a rock touches the
-base road (issue 123's self-check). Writes `cost.json`:
+base road (issue 123's self-check). The guard drives the whole course: at least FRAMES frames
+and until the lead car is END_MARGIN from the course's end, and fails when it never gets there
+(issue 145: 400 frames ended at 280 m of Haruna's 1527, before the first base contact, at
+about 282 m). Writes `cost.json`:
 
     python -m scensim_isaac_world.course.fixture_cost --map <map dir> --out <dir>
         [--query raycast|sweep] [--cars 1|2|4] [--follow] [--road <road_detail.yaml>] [--guard-ms N]
@@ -33,6 +36,23 @@ WARMUP_S = 6.0
 SPEED = 10.0
 GAP = 20.0
 START = 40.0
+END_MARGIN = 2 * LOOKAHEAD  # m before the course's end, where the guard's drive stops (issue 145)
+GUARD_SLACK_S = 10.0  # s beyond the course's planned drive before the guard gives up on its end
+
+
+def warm_distance(speed):
+    """The way a car goes in WARMUP_S from rest: 2.5 m/s^2 up to `speed`, then holding it."""
+    ramp = speed / 2.5
+    if ramp >= WARMUP_S:
+        return 1.25 * WARMUP_S ** 2
+    return speed * speed / 5.0 + speed * (WARMUP_S - ramp)
+
+
+def guard_frames(length, s0, speed):
+    """The frames after the warm-up that take a car from `s0` to END_MARGIN before the end of
+    a course `length` long at `speed`, GUARD_SLACK_S more, and at least FRAMES (issue 145)."""
+    left = length - END_MARGIN - s0 - warm_distance(speed)
+    return max(FRAMES, math.ceil(max(left, 0.0) / (speed * FRAME) + GUARD_SLACK_S / FRAME))
 
 
 class Line:
@@ -41,6 +61,7 @@ class Line:
 
     def __init__(self, s, x, y, z):
         self.s, self.x, self.y, self.z = (np.asarray(a, float) for a in (s, x, y, z))
+        self.length = float(self.s[-1])
         h = np.arctan2(np.gradient(self.y), np.gradient(self.x))
         self.c, self.sn = np.cos(h), np.sin(h)
 
@@ -69,6 +90,7 @@ class Straight:
         self.h = float(math.atan2(y[-1] - y[0], x[-1] - x[0]))
         self.d = np.array([math.cos(self.h), math.sin(self.h)])
         self.n = np.array([-math.sin(self.h), math.cos(self.h)])
+        self.length = float(math.hypot(x[-1] - x[0], y[-1] - y[0]))
 
     def heading(self, s):
         return self.h
@@ -99,7 +121,7 @@ def main():
     ap.add_argument("--hz", type=int, default=60, help="physics rate: 60, 120 or 240 (C6a2)")
     ap.add_argument("--guard-ms", type=float,
                     help="issue 128's guard: exit 1 if a frame of the first GUARD_FRAMES takes "
-                    "longer, or a rock touches the base road")
+                    "longer, or a rock touches the base road, on the whole course (issue 145)")
     ap.add_argument("--road", help="the road record to load (a map's own "
                     "<map dir>/road_detail.yaml); default: the course's course/road_detail.yaml")
     ap.add_argument("--follow", action="store_true",
@@ -171,8 +193,16 @@ def main():
             layer.placed(veh.path, pose)  # its tiles and rocks before the first step (issue 142)
 
         t, frame_ms, contact_ms, flush_ms, tiles, first_ms = 0.0, [], [], [], [], []
-        total = int(WARMUP_S / FRAME) + FRAMES
+        lead = max(START + GAP * (k // 2) + GAP / 2 * (k % 2) for k in range(a.cars))
+        end = line.length - END_MARGIN
+        timed = FRAMES if a.guard_ms is None else guard_frames(line.length, lead, SPEED)
+        total = int(WARMUP_S / FRAME) + timed
+        reached = False
         for f in range(total):
+            if a.guard_ms is not None and \
+                    max(line.s_of(c["state"].position[:2]) for c in cars) >= end:
+                reached = True  # the whole course (issue 145)
+                break
             for c in cars:
                 st, cmd = c["state"], c["cmd"]
                 pos = np.array(st.position[:2])
@@ -208,7 +238,7 @@ def main():
             t += FRAME
             if f < GUARD_FRAMES:
                 first_ms.append((time.perf_counter() - t0) * 1e3)
-            if f >= total - FRAMES:
+            if f >= total - timed:
                 frame_ms.append((time.perf_counter() - t0) * 1e3)
                 contact_ms.append(sum(layer.road.cost_ms[n0:]))
                 flush_ms.append((time.perf_counter() - t1) * 1e3)
@@ -227,6 +257,7 @@ def main():
                "speeds": [round(c["state"].velocity[0], 2) for c in cars],
                "follow": a.follow, "road": a.road or "",
                "s_end": [round(line.s_of(c["state"].position[:2]), 1) for c in cars],
+               "course_m": round(line.length, 1), "course_end": reached,
                "first_frames_ms_max": round(max(first_ms), 1),
                "base_contacts": len(layer.road_rocks.base_hits) if layer.road_rocks else 0}
         print(f"fixture_cost: {json.dumps(out)}", flush=True)
@@ -238,6 +269,9 @@ def main():
                            f"{out['first_frames_ms_max']} ms (> {a.guard_ms})")
             if out["base_contacts"]:
                 bad.append(f"{out['base_contacts']} rock(s) on the base road (issue 123)")
+            if not reached:
+                bad.append(f"the cars stopped at s {max(out['s_end'])} m, short of the course's "
+                           f"{round(end, 1)} (issue 145: the guard drives the whole course)")
             print(f"fixture_cost guard: {'; '.join(bad) or 'ok'}", flush=True)
             if bad:
                 code = 1
