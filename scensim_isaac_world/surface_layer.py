@@ -66,6 +66,7 @@ PLACE_ROCK_FRAMES = 1000  # rock stream updates at most when a car is placed (is
 # collision tiles when the tile worker, on the wall clock, had made them, so not reproducibly.
 # A run at real time waits about nothing; a faster one slows to the worker's pace.
 FRAME_WAIT_S = 2.0
+SLOW_WAIT_MS = 50.0  # a frame end's wait for its tiles over this is logged (issue 147)
 # The soil's motion resistance is full from this speed up and fades to none at rest, m/s: it
 # opposes motion that happens, it never pushes a car standing still (docs/issues/004).
 RESIST_V0 = 0.1
@@ -591,6 +592,9 @@ class SurfaceLayer:
         left = self.road.ready_around([(p[0], p[1]) for p in self.near_pose], reach,
                                       timeout=FRAME_WAIT_S)
         self.wait_ms.append((time.perf_counter() - t0) * 1e3)
+        if self.wait_ms[-1] > SLOW_WAIT_MS:
+            log.warning("issue 147: a frame's end waited %.0f ms for the road's tiles within %.0f m "
+                        "of a car (over %.0f ms)", self.wait_ms[-1], reach, SLOW_WAIT_MS)
         if left:
             self.wait_missed += len(left)
             log.warning("issue 144: %d road tile(s) within %.0f m of a car not ready after %.1f s; "

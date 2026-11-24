@@ -70,6 +70,9 @@ FILE = "road_detail.yaml"
 REACH = 48.0  # m ahead of a vehicle whose tiles are made in the worker
 LEAD_S = 4.0  # s: at speed, the tiles of the next 4 s (a busy host delays the worker)
 PLACE_WAIT_S = 5.0  # s: the most a placed car waits for its tiles (issue 142)
+# m around a vehicle whose tiles touching a corridor are made ahead of the frame's end: the
+# reach of the collision tiles and the rocks (rock_layer's COLLISION_REACH, ROCK_REACH; issue 147)
+AROUND = 32.0
 # aib.isaac.vehicle.WHEELS' order (front?, side): front left, front right, rear left, rear right
 ORDER = ((True, 1), (True, -1), (False, 1), (False, -1))
 WHEELS = len(ORDER)
@@ -604,7 +607,8 @@ class RoadLayer:
         142: a straight line from the heading leaves a road of hairpins, and the tiles round a
         bend came only once the car had turned); the heading's straight line when no corridor
         is near. The heading is the velocity's above 1 m/s, the body's yaw below it (at rest a
-        velocity's direction is noise), and the car's own place is always in."""
+        velocity's direction is noise), and the car's own place is always in. With them, every
+        tile within AROUND of the car that touches a corridor (issue 147)."""
         from aib.frames import qrot
 
         (px, py, _), q, (vx, vy, _) = v.last
@@ -632,7 +636,12 @@ class RoadLayer:
         if len(xs) == 1:  # off every corridor
             xs.append(x + hx * reach * s)
             ys.append(y + hy * reach * s)
-        return self.detail.tiles_near(np.concatenate(xs), np.concatenate(ys), 6.0)
+        d = self.detail
+        ahead = d.tiles_near(np.concatenate(xs), np.concatenate(ys), 6.0)
+        # and every tile within the frame end's reach that touches a corridor, as `ready_around`
+        # asks (issue 147: those beside the road were asked for only by the frame's end, which
+        # then waited for them)
+        return ahead | {k for k in d.tiles_near([x], [y], AROUND) if d.touches(*k)}
 
     def scale(self, path, i):
         car = self.cars.get(path)
