@@ -135,7 +135,7 @@ class Prewarm(unittest.TestCase):
         s = rock_layer.RockStream.__new__(rock_layer.RockStream)
         s.layer = SimpleNamespace(detail=rd.Detail([c]))
         s.pool, s.reserved, s.reserved_for, s.prewarm_ms = {}, {}, 0, []
-        s.made, s.prewarmed, s.serial = 0, 0, 0
+        s.made, s.prewarmed, s.serial, s.pending = 0, 0, 0, {}
         s._new_prim = lambda r, pos, quat: (setattr(s, "made", s.made + 1),
                                             setattr(s, "serial", s.serial + 1),
                                             f"/p{s.serial}")[-1]
