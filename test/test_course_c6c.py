@@ -88,6 +88,10 @@ class Unchanged(unittest.TestCase):
     @unittest.skipUnless(np.__version__.startswith(GOLDEN_NUMPY + "."),
                          f"the golden hash is numpy {GOLDEN_NUMPY}'s")
     def test_a_corridor_without_profiles_is_byte_identical_to_before(self):
+        """The heights of a corridor without `profiles` equal, byte for byte, siw 7813843's (before
+        086 C6c). Pinned to numpy GOLDEN_NUMPY and skipped elsewhere, so the guarantee holds on
+        the gate host only; a version-independent form (asserting the profile path is not entered
+        for such a corridor) is a follow-up (133, 2026-11-25)."""
         import hashlib
         c, = road_layer.parse({"corridors": [{
             "centreline": [[0, 0], [120, 0], [200, 40]], "seed": 7, "ruts": {}, "potholes": {},
