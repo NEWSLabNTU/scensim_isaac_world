@@ -1,7 +1,8 @@
 """Issue 142: since issue 134 every tile was projected on every corridor, and a tile the road
 does not reach took ten times as long in the worker (44 to 424 ms), so the rocks ahead loaded
 about 30 m later. A corridor that cannot reach the tile is skipped again; heights, base road,
-zones and the rocks placed are bit for bit those of the full projection; no Isaac."""
+zones and the rocks placed are bit for bit those of the full projection (under numpy 1.x;
+`same_uv`: 2.x); no Isaac."""
 import math
 import os
 import sys
@@ -94,6 +95,24 @@ class Skip(unittest.TestCase):
             self.assertEqual(d._uvs(*key)[0] is not None, d.touches(*key))
 
 
+# Bit for bit under numpy 1.x. numpy 2.x (Isaac 6.2's 2.3.1, the world server's) sums in another
+# order: measured there, u within 2.0e-8 m and v the same except where a point is equally near two
+# segments meeting at a vertex and the other one is taken (0.42 mm in v, one point of 71538).
+# The 2.x bounds below were set after that measurement (scensim issue 145's numpy note).
+NUMPY2 = np.lib.NumpyVersion(np.__version__) >= "2.0.0"
+U_TOL, V_TOL = 1e-6, 1e-3  # m, numpy 2.x only
+
+
+def same_uv(got, want):
+    """uv's (u, v, near): equal under numpy 1.x; under 2.x near equal, u and v within the bounds."""
+    for k, (g, w) in enumerate(zip(got, want)):
+        g, w = np.asarray(g).ravel(), np.asarray(w).ravel()
+        if not NUMPY2 or k == 2:
+            np.testing.assert_array_equal(g, w)
+        else:
+            np.testing.assert_allclose(g, w, rtol=0, atol=(U_TOL, V_TOL)[k])
+
+
 def line(points, step=0.5):
     """A corridor through `points` ((x, y) corners), a station every `step` m."""
     pts = [np.asarray(points[0], float)]
@@ -118,9 +137,7 @@ class Blocks(unittest.TestCase):
         d = rd.Detail([c], workers=0)
         for k in keys:
             X, Y = d._grid(*k)
-            whole = c._uv(np.stack([X.ravel(), Y.ravel()], axis=1))
-            for a, b in zip(whole, c.uv(X, Y)):
-                np.testing.assert_array_equal(a, b)
+            same_uv(c.uv(X, Y), c._uv(np.stack([X.ravel(), Y.ravel()], axis=1)))
 
     def test_tiles_are_the_per_tile_culls_bit_for_bit(self):
         c = winding(3000)
