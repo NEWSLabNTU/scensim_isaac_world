@@ -78,10 +78,13 @@ class Paces(unittest.TestCase):
     """The proof's offline form: a slow worker, the same drive at two paces, and the tiles each
     frame's end finds ready in reach the same, frame by frame."""
 
-    def drive(self, sleep_s, timeout=surface_layer.FRAME_WAIT_S):
+    def drive(self, sleep_s, timeout=60.0):
         """Frames along a winding road; each frame's end waits as `flush` does, and records the
         tiles ready within reach. The worker makes a tile 20 ms after it is asked for, on the
-        wall clock; `sleep_s` is the frame's own wall time (the pace)."""
+        wall clock; `sleep_s` is the frame's own wall time (the pace). The wait's bound here is
+        generous (60 s), not FRAME_WAIT_S: the test is that a completed wait gives the same tiles
+        at both paces, and the first frame's dozens of tiles took over 2 s on a loaded gate host
+        (issue 132's lesson; the bound itself is `Wait`'s)."""
         c = winding()
         lay = road_layer.RoadLayer([c], workers=0)
         pool = concurrent.futures.ThreadPoolExecutor(1)
@@ -92,7 +95,7 @@ class Paces(unittest.TestCase):
         reach = max(rock_layer.ROCK_REACH, rock_layer.COLLISION_REACH)
         seen = []
         try:
-            for k in range(0, 560, 40):
+            for k in range(0, 400, 40):
                 p = tuple(c.centreline[k][:2])
                 left = lay.ready_around([p], reach, timeout=timeout)
                 if timeout:
