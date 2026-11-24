@@ -22,6 +22,7 @@ its parent's (issue 030). Rocks collide with the world's ground as they do with 
 a loose one is placed only where the detail is no more than rocks.LOOSE_BELOW under the base
 (`rocks.place`), so it rests where the surface is.
 """
+import itertools
 import logging
 import math
 import time
@@ -104,6 +105,19 @@ def intake_check(paths, where, strict=None):
         log.warning("issue 145: collider %s is not in %s before the next physics step (%s): "
                     "PhysX takes it in without that group's filter", p, g, where)
     return len(paths)
+
+
+# The serial in every collider path the road makes (tiles, a tile's static rocks, the rocks), for
+# the whole session, not per stream: a collider made at a path an earlier one had makes omni.physx
+# take it for one in two collision groups (issue 034). Each load makes a new stream, which
+# counted from 1 again, so the scenario's load after the preload remade the 768-prim pool at the
+# preload's paths and logged 768 warnings (issue 152's record).
+_SERIAL = itertools.count(1)
+
+
+def next_serial():
+    """A collider path's serial never used before in this session (issue 034)."""
+    return next(_SERIAL)
 
 
 def covers_tiles(path):
@@ -195,7 +209,7 @@ class DetailColliders:
                                  j * d.tile + np.arange(self.n_c + 1) * s - oy)
             # a path never used before: a collider made again at a removed one's path makes
             # omni.physx take it for one in two collision groups (issue 034)
-            self.serial += 1
+            self.serial = next_serial()
             path = f"{COLL_ROOT}/t_{i}_{j}_{self.serial}".replace("-", "m")
             m = _mesh(self.stage, path, np.stack([gx, gy, h], axis=-1).reshape(-1, 3),
                       self.coll_idx, self.coll_cnt, "none")
@@ -382,7 +396,7 @@ class RockStream:
             path = None
             if statics:
                 v, f = rk.merged(statics)
-                self.serial += 1  # a path of its own (issue 034)
+                self.serial = next_serial()  # a path of its own, in the session (issue 034)
                 path = f"{ROOT}/s_{k[0]}_{k[1]}_{self.serial}".replace("-", "m")
                 self._mesh(path, v, Vt.IntArray.FromNumpy(f.ravel().astype(np.int32)),
                            Vt.IntArray.FromNumpy(np.full(len(f), 3, np.int32)), "none")
@@ -473,7 +487,7 @@ class RockStream:
         """A new prim for rock r (a Rock) at pos, quat, in the rocks' group, asleep."""
         from pxr import Gf, PhysxSchema, UsdPhysics, Vt
 
-        self.serial += 1
+        self.serial = next_serial()
         self.made += 1
         path = f"{ROOT}/r{self.serial}"
         # a prototype's rock: its points unscaled and the size as the prim's scale, so PhysX
