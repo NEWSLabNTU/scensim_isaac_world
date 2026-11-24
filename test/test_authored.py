@@ -6,12 +6,23 @@ the system Python does not (those tests are skipped there):
     source src/scensim_isaac_world/scripts/isaac_env.sh && python -m unittest discover -s src/scensim_isaac_world/test
 """
 import os
+import importlib.util
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# aib (the rig's tyre peaks, surface_layer.rig_peaks, at this module's load): a sourced
+# workspace's, else this checkout's deps/ copy; with neither, the module is skipped, saying so
+# (issue 149: surface_layer itself imports without aib and refuses by name where it is needed)
+AIB = Path(__file__).resolve().parents[1] / "deps" / "autoware_isaac_bridge" / "src" / "aib"
+if importlib.util.find_spec("aib") is None and (AIB / "aib").is_dir():
+    sys.path.insert(0, str(AIB))
+if importlib.util.find_spec("aib") is None:
+    raise unittest.SkipTest("no aib in this Python and no deps/autoware_isaac_bridge "
+                            "(git submodule update --init --recursive)")
 
 from scensim_isaac_world import surface_layer, surfaces  # noqa: E402
 from scensim_isaac_world.surfaces import RoadCondition, SurfaceError  # noqa: E402

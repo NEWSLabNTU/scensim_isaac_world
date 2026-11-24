@@ -1,5 +1,6 @@
 """086 C5d: Autoware's maps from the record and the meshes (lanelet heights, the divided cloud);
 no Isaac."""
+import importlib.util
 import json
 import os
 import sys
@@ -23,6 +24,14 @@ def load(name):
         return yaml.safe_load(f)
 
 
+# centreline.Frame projects with pyproj: the course's lanelets are the system Python's work
+# (pyproj, lanelet2), not the world server's in Isaac's venv, which lacks it (issues 090, 149)
+NO_PYPROJ = None if importlib.util.find_spec("pyproj") else (
+    "no pyproj in this Python: the course's centreline and lanelets are built by the system "
+    "Python (pyproj, lanelet2), not Isaac's")
+
+
+@unittest.skipIf(NO_PYPROJ, NO_PYPROJ or "")
 class LaneletHeights(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

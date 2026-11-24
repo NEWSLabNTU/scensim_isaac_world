@@ -1,5 +1,6 @@
 """The surface layer's map, model and Isaac glue (roadmap 047 S1); no Isaac needed."""
 import dataclasses
+import importlib.util
 import math
 import sys
 import tempfile
@@ -11,6 +12,16 @@ from unittest import mock
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# aib (the rig's tyre peaks, surface_layer.rig_peaks, at this module's load): a sourced
+# workspace's, else this checkout's deps/ copy; with neither, the module is skipped, saying so
+# (issue 149: surface_layer itself imports without aib and refuses by name where it is needed)
+AIB = Path(__file__).resolve().parents[1] / "deps" / "autoware_isaac_bridge" / "src" / "aib"
+if importlib.util.find_spec("aib") is None and (AIB / "aib").is_dir():
+    sys.path.insert(0, str(AIB))
+if importlib.util.find_spec("aib") is None:
+    raise unittest.SkipTest("no aib in this Python and no deps/autoware_isaac_bridge "
+                            "(git submodule update --init --recursive)")
 
 from scensim_isaac_world import soil, surface_layer, surfaces  # noqa: E402
 from scensim_isaac_world.surfaces import RoadCondition, Surface, SurfaceError  # noqa: E402
@@ -397,7 +408,7 @@ class WheelSurfacesTest(unittest.TestCase):
         kappa, tan_alpha = RIG_PEAKS
         self.assertAlmostEqual(kappa * FILTER_GRIP, 0.244, delta=0.005)
         self.assertAlmostEqual(math.degrees(math.atan(tan_alpha * FILTER_GRIP)), 8.55, delta=0.1)
-        self.assertAlmostEqual(surface_layer.PEAK_SPAN * FILTER_GRIP, 2.3)
+        self.assertAlmostEqual(surface_layer.peak_span() * FILTER_GRIP, 2.3)
 
     def test_dry_asphalt_below_the_peak_is_the_rigs_tire(self):
         ws = self.wheels(tire_friction=1.3)

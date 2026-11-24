@@ -46,8 +46,6 @@ import os
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from aib.tyre_friction import FILTER_GRIP
-
 from . import road_layer, roll_bars, soil, surfaces
 
 log = logging.getLogger("scensim_isaac_world")
@@ -75,13 +73,32 @@ RESIST_V0 = 0.1
 # speed as tanh(v / SIDE_V0), m/s: full once the tire is sliding sideways, none rolling straight.
 SIDE_V0 = 0.1
 G = 9.81
-# PhysX's tire saturates near a slip of PEAK_SPAN mu F_z / C, and uses about STIFFNESS_IN_USE
+# PhysX's tire saturates near a slip of peak_span() mu F_z / C, and uses about STIFFNESS_IN_USE
 # of the stiffness the rig writes (054 step 4a, spikes/tire_curve.py: 2.3, 0.9; the cap was
 # about 1.15 mu times the suspension force). That 1.15 is PhysX's tyre load filter (scensim
 # issue 108): aib now writes mu / FILTER_GRIP, so the cap is mu F_z and the peak comes
 # FILTER_GRIP sooner. `mu` here stays the spec's (aib's tire_frictions), divided once, in aib.
-PEAK_SPAN = 2.3 / FILTER_GRIP
+# aib is found at run time, not at import (package.xml: refused by name when absent; issue 149).
 STIFFNESS_IN_USE = 0.9
+
+
+def filter_grip():
+    """aib's FILTER_GRIP (PhysX's tyre load filter's gain, issue 108); refused by name when
+    this Python has no aib."""
+    try:
+        from aib.tyre_friction import FILTER_GRIP
+    except ImportError:
+        raise ImportError(
+            "scensim_isaac_world: no aib (the Isaac ego, whose tyre_friction sets the tyre's peak) "
+            "in this Python. From source: git submodule update --init --recursive "
+            "src/scensim_isaac_world (its deps/ carry aib), then colcon build and source "
+            "install/setup.bash; from a release: install its Isaac part, which carries aib") from None
+    return FILTER_GRIP
+
+
+def peak_span():
+    """PEAK_SPAN, the slip near which PhysX's tire saturates, over mu F_z / C."""
+    return 2.3 / filter_grip()
 
 
 def rig_peaks(p, tire=None):
@@ -92,8 +109,9 @@ def rig_peaks(p, tire=None):
     long_stiff = (tire or {}).get("long_stiff_value", p.long_stiff_value)
     lat_stiff = (tire or {}).get("lat_stiff_value", p.lat_stiff_value)
     load = p.mass * G / 4
-    return (PEAK_SPAN * load / (STIFFNESS_IN_USE * long_stiff * G),
-            PEAK_SPAN / (STIFFNESS_IN_USE * lat_stiff))
+    span = peak_span()
+    return (span * load / (STIFFNESS_IN_USE * long_stiff * G),
+            span / (STIFFNESS_IN_USE * lat_stiff))
 
 
 def kinematic_wheels(dims, center, physics=None):
