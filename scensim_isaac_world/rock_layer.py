@@ -106,6 +106,21 @@ def intake_check(paths, where, strict=None):
     return len(paths)
 
 
+def covers_tiles(path):
+    """Whether a ground prim path is the detail's collision tiles' root or holds it (issue 152)."""
+    path = str(path).rstrip("/") or "/"
+    return path == COLL_ROOT or COLL_ROOT.startswith(path + "/") or path == "/"
+
+
+def base_ground(world_ground, detail_ground=()):
+    """The ground the rocks do not collide with (`roadBase`): road_detail.yaml's `ground` when
+    it names one, else the world's own ground without the detail's collision tiles. The world
+    counts the tiles as ground for its contacts (issue 033's static world), but in `roadBase`
+    each tile was in two groups (`roadBase` through its root, `roadDetail` by its own path) and
+    issue 123's self-check counted a rock resting on a tile as on the base (issue 152)."""
+    return [str(p) for p in (detail_ground or world_ground) if not covers_tiles(p)]
+
+
 def define_groups(stage, groups="/World/vehicleCollisionGroups"):
     """The road's collision groups, made before the simulation starts (issue 123: a group made
     while it runs is not applied to colliders PhysX already holds): `roadBase` (the world's
@@ -233,6 +248,10 @@ class RockStream:
         true surface, not on the base above a rut or a crowned road's sides. `colliders`: the
         road layer's DetailColliders (issue 119), which the world updates before the rocks;
         None: the stream makes and updates its own."""
+        bad = [str(p) for p in ground if covers_tiles(p)]
+        if bad:  # issue 152: a tile in `roadBase` and `roadDetail` at once
+            raise ValueError(f"issue 152: the rocks' base ground {bad} holds the detail's "
+                             f"collision tiles ({COLL_ROOT}); pass rock_layer.base_ground(...)")
         from pxr import Sdf, UsdGeom, UsdPhysics
 
         self.stage, self.layer, self.physx = stage, layer, physx

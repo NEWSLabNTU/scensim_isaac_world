@@ -472,7 +472,7 @@ class IsaacWorld(WorldBase):
         if layer.road.rocks is not None:  # 066 R4: the corridors' rocks, streamed
             layer.road_rocks = layer.road.rock_stream = rock_layer.RockStream(
                 self.stage, layer.road, self.physx,
-                ground=road_layer.load_ground(path) or list(self.ground),
+                ground=rock_layer.base_ground(self.ground, road_layer.load_ground(path)),
                 colliders=layer.road_colliders)  # rocks stay contacts
         # One physics step now, so PhysX takes in the road's groups and the rock pool's parked
         # prims (about a thousand, one stage edit) before the first ego: made in the same batch,
