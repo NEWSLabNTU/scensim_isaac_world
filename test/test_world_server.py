@@ -39,7 +39,7 @@ class GuardTest(unittest.TestCase):
                            'deadline=STARTUP_LIMIT)')
         self.assertLess(main.index("watchdog = StepWatchdog()"), armed)
         self.assertLess(armed, main.index("from isaacsim import SimulationApp"))
-        self.assertLess(main.index("world.preload(usd)"), main.index("startup.__exit__("))
+        self.assertLess(main.index("world.preload(usd, ground)"), main.index("startup.__exit__("))
         self.assertIn("watchdog.watch_log(kit_log, KIT_FATAL)", main)
         self.assertIn("watchdog=watchdog)", main[main.index("run(world, socket"):])
         self.assertEqual(world_server.STARTUP_LIMIT, 1200.0)

@@ -217,7 +217,7 @@ class IsaacWorld(WorldBase):
         sun.CreateAngleAttr(1.0)
         UsdGeom.XformCommonAPI(sun.GetPrim()).SetRotate(Gf.Vec3f(*SUN_ROTATE))
         UsdLux.DomeLight.Define(self.stage, SKY).CreateIntensityAttr(600.0)
-        self.loaded_usd = None
+        self.loaded_usd, self.loaded_ground = None, []
         for prim in self.stage.Traverse():
             if prim.IsA(UsdPhysics.Scene):
                 PhysxSchema.PhysxSceneAPI.Apply(prim)
@@ -312,14 +312,21 @@ class IsaacWorld(WorldBase):
             # The soil zones' own ground goes, and the world's comes back under it.
             self.surface.remove_tiles()
         plane = self.stage.GetPrimAtPath(GROUND_PLANE)
-        if usd and usd == self.loaded_usd and self.stage.GetPrimAtPath(ENVIRONMENT):
+        if self.stage.GetPrimAtPath(ENVIRONMENT) and names.keep_loaded_world(
+                usd, ground_paths, self.loaded_usd, self.loaded_ground):
             # The same world (preloaded, or the last episode's): keep it, shaders and all.
             self.ground = list(ground_paths)
             self._load_surfaces(usd)
             return
+        if usd and usd == self.loaded_usd and self.stage.GetPrimAtPath(ENVIRONMENT):
+            log.warning("issue 152: world %s was loaded with ground paths %s and is asked for "
+                        "with %s: loaded again (PhysX keeps a collider's groups from its first "
+                        "intake, so the kept world's ground would stay outside roadBase); a "
+                        "preload should name the world file's ground paths", usd,
+                        list(self.loaded_ground or []), list(ground_paths))
         if self.stage.GetPrimAtPath(ENVIRONMENT):
             self.stage.RemovePrim(ENVIRONMENT)
-        self.loaded_usd = None
+        self.loaded_usd, self.loaded_ground = None, []
         if usd:
             # A course's props through a `carla-usd` link that is not beside it: from a
             # stand-in directory in the map's state (`names.staged_world`).
@@ -334,7 +341,7 @@ class IsaacWorld(WorldBase):
             if entry is not None and entry.authored:
                 self._authored_physics()
             self.ground = list(ground_paths)
-            self.loaded_usd = usd
+            self.loaded_usd, self.loaded_ground = usd, list(ground_paths)
         else:
             plane.SetActive(True)
             self.ground = [GROUND_PLANE, *ground_paths]
@@ -827,12 +834,14 @@ class IsaacWorld(WorldBase):
             shown[od] = lit[0] if len(lit) == 1 else "OFF"
         return shown
 
-    def preload(self, usd, renders=PRELOAD_RENDERS):
+    def preload(self, usd, ground_paths=(), renders=PRELOAD_RENDERS):
         """Load `usd` and render it before scensim asks for it: the first render of a large world
         compiles its materials (about 9 minutes for CARLA's Town01), which no request timeout
-        should have to cover. scensim's `LoadWorld` of the same path then keeps it."""
+        should have to cover. scensim's `LoadWorld` of the same path and ground paths then keeps
+        it. `ground_paths`: the world file's, as `LoadWorld` sends them (issue 152: preloaded
+        with none, the world's ground entered PhysX outside `roadBase`)."""
         t = time.perf_counter()
-        self.load(usd, [])
+        self.load(usd, list(ground_paths))
         for _ in range(renders):
             self.world.render()
         if self.ego_config is not None:

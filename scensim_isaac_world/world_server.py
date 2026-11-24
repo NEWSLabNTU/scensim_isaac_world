@@ -87,13 +87,23 @@ def world_usd(entry):
     return usd
 
 
+def world_ground(entry):
+    """The ground paths a `--world` entry's world file names (`ground_paths`), [] for a USD
+    file: the preload loads the world with them, as scensim's `LoadWorld` will (issue 152)."""
+    path = world_file(entry)
+    return names.world_ground_of(path) if path is not None else []
+
+
 def preload_list(worlds):
-    """`--world`'s comma-separated entries as USD paths, checked before Isaac starts."""
-    usds = list(dict.fromkeys(world_usd(e.strip()) for e in worlds.split(",") if e.strip()))
-    missing = [u for u in usds if not os.path.exists(u)]
+    """`--world`'s comma-separated entries as (USD path, ground paths), checked before Isaac
+    starts; one a USD, the first entry's."""
+    out = {}
+    for e in (e.strip() for e in worlds.split(",") if e.strip()):
+        out.setdefault(world_usd(e), world_ground(e))
+    missing = [u for u in out if not os.path.exists(u)]
     if missing:
         raise Refused(f"world(s) not found: {', '.join(missing)}")
-    return usds
+    return list(out.items())
 
 
 def kit_log_file():
@@ -239,8 +249,8 @@ def _serve(args, app, socket, run, watchdog, startup, surface_maps, preload, sta
                        state_dir=args.state_dir or None,
                        wheels_topic=args.wheels_topic == "true")
     # The first listed is preloaded last, so it is the one loaded when the bridge first asks.
-    for usd in reversed(preload):
-        world.preload(usd)
+    for usd, ground in reversed(preload):
+        world.preload(usd, ground)
     startup.__exit__(None, None, None)
     # Kit opens its log at its start: one still missing now, at least 60 s on (KIT_LOG_GRACE),
     # means the child watches a file that never appears and a Kit FATAL ends nothing (042's

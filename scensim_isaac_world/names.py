@@ -101,6 +101,26 @@ def map_name(map_dir):
     return os.path.basename(os.path.normpath(os.path.abspath(map_dir)))
 
 
+def world_ground_of(world_file_path, data=None):
+    """The ground paths a world file names (`ground_paths`, its world's own ground prims), as
+    the bridge's `LoadWorld` sends them; [] when it names none."""
+    if data is None:
+        import yaml
+
+        with open(world_file_path) as f:
+            data = yaml.safe_load(f) or {}
+    return [str(p) for p in (data.get("ground_paths") or [])]
+
+
+def keep_loaded_world(usd, ground_paths, loaded_usd, loaded_ground):
+    """Whether a load of `usd` with `ground_paths` may keep the world already on the stage
+    (`loaded_usd`, loaded with `loaded_ground`): the same USD and the same ground. PhysX fixes a
+    collider's collision groups when it takes the collider in, so a world kept with other ground
+    paths keeps the ground's groups of its first load: `roadBase` written afterwards is not
+    applied, and the rocks meet the base (issue 152, the preload with no ground paths)."""
+    return bool(usd) and usd == loaded_usd and list(ground_paths) == list(loaded_ground or [])
+
+
 def world_usd_of(world_file_path, data=None, env=None):
     """The stage a world file names: its `usd:` (or `world:`) with names expanded, relative to
     the map directory; None when it names none (a flat ground plane)."""

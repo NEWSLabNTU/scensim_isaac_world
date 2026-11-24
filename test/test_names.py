@@ -88,7 +88,7 @@ class WorldFiles(unittest.TestCase):
         clean = {k: v for k, v in os.environ.items() if k not in ("SCENSIM_CARLA_USD", "CARLA_USD")}
         with mock.patch.dict(os.environ, dict(clean, SCENSIM_CARLA_USD=str(self.set)), clear=True):
             self.assertEqual(world_server.preload_list(str(self.map)),
-                             [str(self.set / "Town01" / "Town01_physics.usda")])
+                             [(str(self.set / "Town01" / "Town01_physics.usda"), [])])
         with mock.patch.dict(os.environ, clean, clear=True):
             with self.assertRaises(SystemExit) as e:
                 world_server.preload_list(str(self.map))
