@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -144,6 +145,53 @@ class Blocks(unittest.TestCase):
         c.uv(X, Y)
         blocks = time.process_time() - t
         self.assertLess(blocks, whole / 2, (blocks, whole))
+
+
+class Ahead(unittest.TestCase):
+    """Step (ii): the prefetch follows the corridors."""
+
+    def layer(self, cs):
+        from scensim_isaac_world import road_layer
+        return road_layer.RoadLayer(cs, workers=0)
+
+    def car(self, x, y, yaw, vel=(0.0, 0.0)):
+        q = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+        return SimpleNamespace(last=((x, y, 0.0), q, (vel[0], vel[1], 0.0)))
+
+    def test_a_hairpin_is_asked_for_before_the_car_turns(self):
+        lay = self.layer([hairpin()])
+        keys = lay._ahead(self.car(80.0, 0.0, 0.0, (15.0, 0.0)))
+        self.assertIn((5, 1), keys)  # the leg back, x 80 to 96 at y 20
+        lay.detail.close()
+
+    def test_two_corridors_both_followed(self):
+        lay = self.layer([line([(0.0, 0.0), (400.0, 0.0)]),
+                          line([(200.0, 0.0), (200.0, 400.0)])])
+        keys = lay._ahead(self.car(196.0, 0.0, 0.0, (10.0, 0.0)))
+        self.assertIn((15, 0), keys)  # along the first, x 240 to 256
+        self.assertIn((12, 2), keys)  # along the second, y 32 to 48
+        self.assertNotIn((15, 3), keys)  # between them
+        lay.detail.close()
+
+    def test_off_every_corridor_the_heading_line(self):
+        lay = self.layer([line([(0.0, 0.0), (400.0, 0.0)])])
+        keys = lay._ahead(self.car(100.0, 300.0, 0.0, (10.0, 0.0)))
+        s = np.linspace(0.0, 1.0, int(48.0 / 8.0) + 1)
+        want = lay.detail.tiles_near(np.r_[100.0, 100.0 + 48.0 * s], np.r_[300.0, 300.0 + 0 * s],
+                                     6.0)
+        self.assertEqual(keys, want)
+        lay.detail.close()
+
+    def test_a_standing_car_ignores_its_velocitys_noise(self):
+        lay = self.layer([line([(0.0, 0.0), (400.0, 0.0)])])
+        rng = np.random.default_rng(142)
+        first = lay._ahead(self.car(100.0, 0.0, 0.0, (0.0, 0.0)))
+        for _ in range(20):
+            a = rng.uniform(0, 2 * math.pi)
+            noise = (1e-3 * math.cos(a), 1e-3 * math.sin(a))
+            self.assertEqual(lay._ahead(self.car(100.0, 0.0, 0.0, noise)), first)
+        self.assertIn((8, 0), first)  # ahead along the road, x 128 to 144
+        lay.detail.close()
 
 
 if __name__ == "__main__":

@@ -577,13 +577,40 @@ class RoadLayer:
             self.cost_ms.append((time.perf_counter() - t0) * 1e3)
 
     def _ahead(self, v):
-        (px, py, _), _, (vx, vy, _) = v.last
-        speed = math.hypot(vx, vy) or 1.0
+        """The tiles to make ahead of vehicle `v`: along every corridor whose reach it is
+        within, from its u on by max(REACH, LEAD_S speed), the way it heads along each (issue
+        142: a straight line from the heading leaves a road of hairpins, and the tiles round a
+        bend came only once the car had turned); the heading's straight line when no corridor
+        is near. The heading is the velocity's above 1 m/s, the body's yaw below it (at rest a
+        velocity's direction is noise), and the car's own place is always in."""
+        from aib.frames import qrot
+
+        (px, py, _), q, (vx, vy, _) = v.last
+        speed = math.hypot(vx, vy)
+        if speed > 1.0:
+            hx, hy = vx / speed, vy / speed
+        else:
+            f = qrot(q, (1.0, 0.0, 0.0))
+            n = math.hypot(f[0], f[1]) or 1.0
+            hx, hy = f[0] / n, f[1] / n
         reach = max(REACH, LEAD_S * speed)
         s = np.linspace(0.0, 1.0, max(1, int(reach / 8.0)) + 1)
-        gx = px + self.ox + vx / speed * reach * s
-        gy = py + self.oy + vy / speed * reach * s
-        return self.detail.tiles_near(gx, gy, 6.0)
+        x, y = px + self.ox, py + self.oy
+        xs, ys = [np.array([x])], [np.array([y])]
+        for c in self.detail.corridors:
+            u, _, near = c.uv(np.array([x]), np.array([y]))
+            if not near.size or not near[0]:
+                continue
+            k = int(np.clip(np.searchsorted(c.seg_u, u[0], side="right") - 1, 0,
+                            len(c.seg_len) - 1))
+            sign = 1.0 if c.seg_dir[k, 0] * hx + c.seg_dir[k, 1] * hy >= 0.0 else -1.0
+            ua = np.clip(u[0] + sign * reach * s, 0.0, c.length)
+            xs.append(np.interp(ua, c.seg_u, c.centreline[:, 0]))
+            ys.append(np.interp(ua, c.seg_u, c.centreline[:, 1]))
+        if len(xs) == 1:  # off every corridor
+            xs.append(x + hx * reach * s)
+            ys.append(y + hy * reach * s)
+        return self.detail.tiles_near(np.concatenate(xs), np.concatenate(ys), 6.0)
 
     def scale(self, path, i):
         car = self.cars.get(path)
