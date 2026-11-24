@@ -24,9 +24,11 @@ def winding(n=3000, step=0.5):
 
 
 def full(c, x, y):
-    """uv over every segment, as before the fix."""
-    with mock.patch.object(rd.Corridor, "_candidates", lambda self, p: range(len(self.seg_len))):
-        return c.uv(x, y)
+    """uv over every segment, as before the fix: the plain loop, no culling and no blocks
+    (issue 142's blocks go through `_candidates` too)."""
+    with mock.patch.object(rd.Corridor, "_candidates",
+                           lambda self, p, among=None: range(len(self.seg_len))):
+        return c._uv(np.stack([np.ravel(x), np.ravel(y)], axis=1))
 
 
 def grid(c, i, j, tile=16.0, n=81):

@@ -356,15 +356,52 @@ class Corridor:
             z = z + self._record_section.height_uv(u, v)
         return z
 
+    UV_BLOCK = 2.0  # m: the side of a block of points culled on its own (issue 142)
+    UV_BLOCKED = 4096  # points: at least this many are culled block by block
+
     def uv(self, x, y):
         """Each point's (u, v) on the centreline: its nearest segment's (P,), and whether it lies
-        within the corridor's reach."""
+        within the corridor's reach. Many points (a tile's) are culled in blocks of UV_BLOCK
+        m, each keeping the segments that can be nearest to its own points (issue 142: a tile
+        culled whole kept a hundred segments, each a pass over all its points); the nearest
+        segment of every point survives its block's cull, so the result is the same."""
         p = np.stack([np.ravel(x), np.ravel(y)], axis=1)
+        if len(p) < self.UV_BLOCKED or len(self.seg_len) < 64:
+            return self._uv(p)
+        b = np.floor((p - p.min(axis=0)) / self.UV_BLOCK).astype(np.int64)
+        block = b[:, 0] * (int(b[:, 1].max()) + 1) + b[:, 1]
+        order = np.argsort(block, kind="stable")
+        cuts = np.nonzero(np.diff(block[order]))[0] + 1
+        u, v, near = np.empty(len(p)), np.empty(len(p)), np.empty(len(p), dtype=bool)
+        whole = self._candidates(p)  # a block's nearest segments are among the tile's
+        for idx in np.split(order, cuts):
+            u[idx], v[idx], near[idx] = self._uv_block(p[idx], self._candidates(p[idx], whole))
+        return u, v, near
+
+    def _uv_block(self, p, segs):
+        """`_uv` over the segments `segs` at once: each point's first nearest in their order,
+        as the loop's strict `<` keeps it; the same arithmetic per point and segment."""
+        if not len(segs):
+            return self._uv(p, segs)
+        a, dr, ln = self.centreline[segs, :2], self.seg_dir[segs], self.seg_len[segs]
+        rel = p[:, None, :] - a[None, :, :]  # (points, segments, 2)
+        t = np.clip(rel[..., 0] * dr[:, 0] + rel[..., 1] * dr[:, 1], 0.0, ln)
+        fx = a[:, 0] + t * dr[:, 0]
+        fy = a[:, 1] + t * dr[:, 1]
+        d = np.hypot(p[:, 0, None] - fx, p[:, 1, None] - fy)
+        k = np.argmin(d, axis=1)
+        r = np.arange(len(p))
+        best = d[r, k]
+        u = self.seg_u[segs][k] + t[r, k]
+        cross = dr[k, 0] * rel[r, k, 1] - dr[k, 1] * rel[r, k, 0]
+        return u, cross, best <= self.reach
+
+    def _uv(self, p, among=None):
         a = self.centreline[:-1]
         best_d = np.full(len(p), np.inf)
         u = np.zeros(len(p))
         v = np.zeros(len(p))
-        for s in self._candidates(p):  # in order, so ties resolve as over every segment
+        for s in self._candidates(p, among):  # in order: ties resolve as over every segment
             rel = p - a[s]
             t = np.clip(rel @ self.seg_dir[s], 0.0, self.seg_len[s])
             foot = a[s] + t[:, None] * self.seg_dir[s]
@@ -376,27 +413,34 @@ class Corridor:
             v = np.where(better, cross, v)
         return u, v, best_d <= self.reach
 
-    def _candidates(self, p):
+    def _candidates(self, p, among=None):
         """The segments that can be nearest to some point of `p` (issue 128): D, the least over
         the segments of the farthest corner of p's bounding box from the segment, bounds every
         point's nearest distance, so a segment whose bounding box lies farther than D from p's
         cannot be nearest to any. Exact; a 3000-station record's tile keeps a few dozen."""
-        if not len(p) or len(self.seg_len) < 64:
+        if among is not None:  # only these (in order): those a larger set of points kept
+            among = np.asarray(among)
+        elif not len(p) or len(self.seg_len) < 64:
             return range(len(self.seg_len))
-        a, b = self.centreline[:-1, :2], self.centreline[1:, :2]
+        else:
+            among = np.arange(len(self.seg_len))
+        if not len(p):
+            return among
+        a, b = self.centreline[among, :2], self.centreline[among + 1, :2]
+        seg_dir, seg_len = self.seg_dir[among], self.seg_len[among]
         lo, hi = p.min(axis=0), p.max(axis=0)
         corners = np.array([[lo[0], lo[1]], [lo[0], hi[1]], [hi[0], lo[1]], [hi[0], hi[1]]])
         far = np.zeros(len(a))
         for c in corners:
             rel = c - a
-            t = np.clip(np.einsum("ij,ij->i", rel, self.seg_dir), 0.0, self.seg_len)
-            foot = a + t[:, None] * self.seg_dir
+            t = np.clip(np.einsum("ij,ij->i", rel, seg_dir), 0.0, seg_len)
+            foot = a + t[:, None] * seg_dir
             far = np.maximum(far, np.hypot(*(c - foot).T))
         bound = float(far.min()) + 1e-6
         smin, smax = np.minimum(a, b), np.maximum(a, b)
         gap = np.hypot(np.maximum(0.0, np.maximum(smin[:, 0] - hi[0], lo[0] - smax[:, 0])),
                        np.maximum(0.0, np.maximum(smin[:, 1] - hi[1], lo[1] - smax[:, 1])))
-        return np.nonzero(gap <= bound)[0]
+        return among[gap <= bound]
 
     def weight(self, u):
         """The share of this corridor's detail at u along it: 1, or falling linearly to 0 over

@@ -2,6 +2,7 @@
 does not reach took ten times as long in the worker (44 to 424 ms), so the rocks ahead loaded
 about 30 m later. A corridor that cannot reach the tile is skipped again; heights, base road,
 zones and the rocks placed are bit for bit those of the full projection; no Isaac."""
+import math
 import os
 import sys
 import time
@@ -90,6 +91,59 @@ class Skip(unittest.TestCase):
         self.assertEqual(uv.call_count, 1)  # the centre only
         for key in keys_around(d, c, ring=1):
             self.assertEqual(d._uvs(*key)[0] is not None, d.touches(*key))
+
+
+def line(points, step=0.5):
+    """A corridor through `points` ((x, y) corners), a station every `step` m."""
+    pts = [np.asarray(points[0], float)]
+    for a, b in zip(points[:-1], points[1:]):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        n = max(1, int(np.ceil(np.hypot(*(b - a)) / step)))
+        pts += [a + (b - a) * k / n for k in range(1, n + 1)]
+    p = np.array(pts)
+    return rd.Corridor(np.concatenate([p, np.zeros((len(p), 1))], axis=1))
+
+
+def hairpin():
+    """+x from 0 to 100 m, a 10 m half circle, back -x at y 20."""
+    arc = [(100 + 10 * math.sin(a), 10 - 10 * math.cos(a)) for a in np.linspace(0, math.pi, 32)]
+    return line([(0.0, 0.0)] + arc + [(0.0, 20.0)])
+
+
+class Blocks(unittest.TestCase):
+    """Step (iii): a tile's projection culled per 2 m block, a block's segments at once."""
+
+    def check(self, c, keys):
+        d = rd.Detail([c], workers=0)
+        for k in keys:
+            X, Y = d._grid(*k)
+            whole = c._uv(np.stack([X.ravel(), Y.ravel()], axis=1))
+            for a, b in zip(whole, c.uv(X, Y)):
+                np.testing.assert_array_equal(a, b)
+
+    def test_tiles_are_the_per_tile_culls_bit_for_bit(self):
+        c = winding(3000)
+        d = rd.Detail([c], workers=0)
+        self.check(c, keys_around(d, c, every=500, ring=1))
+
+    def test_a_hairpin_and_its_ties(self):
+        c = hairpin()
+        self.check(c, [(i, j) for i in range(-1, 8) for j in range(-1, 3)])
+
+    def test_a_tile_costs_a_fraction_of_the_per_tile_cull(self):
+        c = winding(3000)
+        d = rd.Detail([c], workers=0)
+        k = (int(np.floor(c.centreline[1500, 0] / d.tile)),
+             int(np.floor(c.centreline[1500, 1] / d.tile)))
+        X, Y = d._grid(*k)
+        p = np.stack([X.ravel(), Y.ravel()], axis=1)
+        t = time.process_time()
+        c._uv(p)
+        whole = time.process_time() - t
+        t = time.process_time()
+        c.uv(X, Y)
+        blocks = time.process_time() - t
+        self.assertLess(blocks, whole / 2, (blocks, whole))
 
 
 if __name__ == "__main__":
