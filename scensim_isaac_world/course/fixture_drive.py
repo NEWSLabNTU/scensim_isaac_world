@@ -460,10 +460,9 @@ def main():
                 start = fs - runup(speed) - (k or 0) * OFFSET_STEP
                 (x, y), h = xy_at(start, LANE)
                 z = float(np.interp(start, cl["s"], cl["z"])) + 0.05
-                veh.teleport(((float(x), float(y), z),
-                              (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2))), physx)
-                layer.reset(veh.path)
-                layer.road.reset(veh.path)
+                pose = ((float(x), float(y), z), (math.cos(h / 2), 0.0, 0.0, math.sin(h / 2)))
+                veh.teleport(pose, physx)
+                layer.placed(veh.path, pose)  # its tiles and rocks before the step (issue 142)
                 state = State()
                 for _ in range(SETTLE_FRAMES):
                     frame(idle)

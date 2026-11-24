@@ -219,5 +219,66 @@ class Grid(unittest.TestCase):
         self.assertLess(len(c._near_segments(p)), 200)
 
 
+class Placed(unittest.TestCase):
+    """Step (v): a placed car's tiles and rocks before its first step."""
+
+    def test_ready_around_inline_and_with_a_slow_worker(self):
+        import concurrent.futures
+
+        from scensim_isaac_world import road_layer
+        c = winding(600)
+        lay = road_layer.RoadLayer([c], workers=0)
+        p = tuple(c.centreline[300])
+        self.assertEqual(lay.ready_around([p], 32.0), [])
+        keys = {k for k in lay.detail.tiles_near([p[0]], [p[1]], 32.0) if lay.detail.touches(*k)}
+        self.assertTrue(keys and all(lay.detail.ready(k) for k in keys))
+        stuck = road_layer.RoadLayer([c], workers=0)
+        stuck.detail.pool = SimpleNamespace(submit=lambda fn, i, j: concurrent.futures.Future())
+        t = time.monotonic()
+        left = stuck.ready_around([p], 32.0, timeout=0.2)
+        self.assertGreaterEqual(time.monotonic() - t, 0.2)
+        self.assertEqual(set(left), keys)
+
+    def surface(self, left=()):
+        from scensim_isaac_world import surface_layer
+        s = surface_layer.SurfaceLayer.__new__(surface_layer.SurfaceLayer)
+        s.wheels, s.road_meshes = {}, None
+        s.road = SimpleNamespace(ready_around=mock.Mock(return_value=list(left)),
+                                 reset=mock.Mock())
+        s.road_colliders = mock.Mock()
+        rocks = SimpleNamespace(queue=list(range(10)), calls=0)
+
+        def update(points):
+            rocks.calls += 1
+            del rocks.queue[:4]  # four prims a frame
+        rocks.update = update
+        s.road_rocks = rocks
+        s.pose_of = {"/other": (5.0, 5.0, 0.0, 3.0, 0.8, 0.1, 0.14)}
+        s.near_pose = list(s.pose_of.values())
+        return s
+
+    def test_placed_drains_the_rocks_and_keeps_the_others(self):
+        s = self.surface()
+        s.pose_of["/car"] = (0.0, 0.0, 0.0, 9.0, 0.8, 0.1, 0.14)
+        yaw = 0.5
+        left = s.placed("/car", ((100.0, 200.0, 0.0), (math.cos(yaw / 2), 0.0, 0.0,
+                                                       math.sin(yaw / 2))))
+        self.assertEqual(left, [])
+        self.assertEqual(s.road_rocks.queue, [])
+        self.assertEqual(s.road_rocks.calls, 3)
+        self.assertEqual(s.pose_of["/other"], (5.0, 5.0, 0.0, 3.0, 0.8, 0.1, 0.14))
+        x, y, a, v, *rest = s.pose_of["/car"]
+        self.assertEqual((x, y, v, tuple(rest)), (100.0, 200.0, 0.0, (0.8, 0.1, 0.14)))
+        self.assertAlmostEqual(a, yaw)
+        s.road.reset.assert_called_once_with("/car")
+        s.road_colliders.update.assert_called_once()
+
+    def test_tiles_not_ready_are_logged(self):
+        s = self.surface(left=[(1, 2)])
+        with self.assertLogs("scensim_isaac_world", "WARNING") as cm:
+            s.placed("/car", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)))
+        self.assertIn("not ready", cm.output[0])
+
+
 if __name__ == "__main__":
     unittest.main()

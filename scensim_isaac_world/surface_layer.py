@@ -62,6 +62,7 @@ SOIL_SPACING = 0.05
 KINEMATIC_BASE, KINEMATIC_TREAD = 0.6, 0.85
 KINEMATIC_RADIUS, KINEMATIC_WIDTH = 0.33, 0.2
 KINEMATIC_JUMP = 5.0  # m in one frame: a teleport (100 m/s at 20 Hz)
+PLACE_ROCK_FRAMES = 1000  # rock stream updates at most when a car is placed (issue 142)
 # The soil's motion resistance is full from this speed up and fades to none at rest, m/s: it
 # opposes motion that happens, it never pushes a car standing still (docs/issues/004).
 RESIST_V0 = 0.1
@@ -155,6 +156,7 @@ class SurfaceLayer:
         self.mu = {}  # (vehicle path, wheel) -> the friction the surface gives, before the road's
         self.near = []  # the egos' positions at the last place, for the road's meshes
         self.near_pose = []  # and their (x, y, yaw), for the road's rocks
+        self.pose_of = {}  # vehicle path -> its entry of near_pose (issue 142's `placed`)
         if make_tiles is not None:
             for z in surface_map.zones:
                 if z.ground_z is not None:
@@ -320,10 +322,11 @@ class SurfaceLayer:
         if self.road is not None:
             self.road.before_substep(vehicles, dt)
             self.near = [v.last[0] for v in vehicles if v.last is not None]
-            self.near_pose = [(v.last[0][0], v.last[0][1], _yaw(v.last[1]),
-                               math.hypot(v.last[2][0], v.last[2][1]), v.p.wheel_tread / 2,
-                               v.p.wheel_width / 2, getattr(v, "ground_clearance", 0.0))
-                              for v in vehicles if v.last is not None]
+            self.pose_of = {v.path: (v.last[0][0], v.last[0][1], _yaw(v.last[1]),
+                                     math.hypot(v.last[2][0], v.last[2][1]), v.p.wheel_tread / 2,
+                                     v.p.wheel_width / 2, getattr(v, "ground_clearance", 0.0))
+                            for v in vehicles if v.last is not None}
+            self.near_pose = list(self.pose_of.values())
             for v in vehicles:
                 for i in range(len(v.wheel_paths)):
                     mu = self.mu.get((v.path, i))
@@ -564,6 +567,35 @@ class SurfaceLayer:
         ws = self.wheels.get(vehicle.path)
         return list(ws.surfaces) if ws else []
 
+    def placed(self, vehicle_path, pose):
+        """A vehicle placed (spawned or teleported) at `pose`, ((x, y, z), (w, x, y, z)) in the
+        world: its filters reset (`reset`), and the road's tiles within the rocks' and the
+        collision tiles' reach of it made, waited for (`RoadLayer.ready_around`), its collision
+        tiles and every rock prim of them made, before the next step (issue 142: a car placed
+        at speed met rocks that were not there yet). The tiles not ready in time are logged."""
+        self.reset(vehicle_path)
+        if self.road is None:
+            return []
+        from scensim_isaac_world import rock_layer
+
+        (x, y, _), q = pose
+        reach = max(rock_layer.ROCK_REACH, rock_layer.COLLISION_REACH)
+        left = self.road.ready_around([(x, y)], reach)
+        if left:
+            log.warning("placed %s: %d road tile(s) not ready in %.0f s: %s", vehicle_path,
+                        len(left), road_layer.PLACE_WAIT_S, left[:8])
+        old = self.pose_of.get(vehicle_path)
+        self.pose_of[vehicle_path] = (x, y, _yaw(q), 0.0) + (tuple(old[4:]) if old else ())
+        self.near_pose = list(self.pose_of.values())
+        if self.road_colliders is not None:
+            self.road_colliders.update(self.near_pose)
+        if self.road_rocks is not None:
+            for _ in range(PLACE_ROCK_FRAMES):  # every prim, not 4 a frame
+                self.road_rocks.update(self.near_pose)
+                if not self.road_rocks.queue:
+                    break
+        return left
+
     def reset(self, vehicle_path):
         """A teleport: the vehicle's filters snap to the ground on the next update."""
         ws = self.wheels.get(vehicle_path)
@@ -573,6 +605,7 @@ class SurfaceLayer:
             self.road.reset(vehicle_path)
 
     def forget(self, vehicle_path):
+        self.pose_of.pop(vehicle_path, None)
         self.wheels.pop(vehicle_path, None)
         self.kinematic.pop(vehicle_path, None)
         self.kinematic_sink.pop(vehicle_path, None)

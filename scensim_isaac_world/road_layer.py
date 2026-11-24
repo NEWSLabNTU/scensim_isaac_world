@@ -69,6 +69,7 @@ SCALE_STEP = 0.01  # the friction scale's step (as roll_bars')
 FILE = "road_detail.yaml"
 REACH = 48.0  # m ahead of a vehicle whose tiles are made in the worker
 LEAD_S = 4.0  # s: at speed, the tiles of the next 4 s (a busy host delays the worker)
+PLACE_WAIT_S = 5.0  # s: the most a placed car waits for its tiles (issue 142)
 # aib.isaac.vehicle.WHEELS' order (front?, side): front left, front right, rear left, rear right
 ORDER = ((True, 1), (True, -1), (False, 1), (False, -1))
 WHEELS = len(ORDER)
@@ -575,6 +576,27 @@ class RoadLayer:
                 for force, position in out:
                     self.apply_force(v.path, force, position)
             self.cost_ms.append((time.perf_counter() - t0) * 1e3)
+
+    def ready_around(self, points, reach, timeout=PLACE_WAIT_S):
+        """The road's tiles within `reach` m of the world (x, y) points made, with their rocks'
+        placement, waiting at most `timeout` s (issue 142: a car placed mid-road met tiles and
+        rocks not made yet); the keys still not ready."""
+        import time
+
+        d = self.detail
+        xs = [p[0] + self.ox for p in points]
+        ys = [p[1] + self.oy for p in points]
+        keys = {k for k in d.tiles_near(xs, ys, reach) if d.touches(*k)}
+        d.prefetch(keys)
+        end = time.monotonic() + timeout
+
+        def done(k):
+            return d.ready(k) and (d.extras_name is None or d.extra(*k) is not None)
+        while True:
+            left = sorted(k for k in keys if not done(k))
+            if not left or time.monotonic() >= end:
+                return left
+            time.sleep(0.005)
 
     def _ahead(self, v):
         """The tiles to make ahead of vehicle `v`: along every corridor whose reach it is

@@ -905,6 +905,8 @@ class IsaacWorld(WorldBase):
             if self.surface is not None and self.surface.road_rocks is not None:
                 # 066 R4: a rock window per ego, its pool made now rather than mid-drive
                 self.surface.road_rocks.reserve(len(self.egos))
+            if self.surface is not None:  # its tiles and rocks before the warm-up (issue 142)
+                self.surface.placed(path, pose)
             self.by_path[path] = handle
             t = time.perf_counter()
             def warm_step():
@@ -1380,8 +1382,8 @@ class IsaacWorld(WorldBase):
         for handle, d in drives.items():
             if handle in self.egos and d.pose is not None:
                 self.egos[handle].teleport(d.pose, self.physx)
-                if self.surface is not None:
-                    self.surface.reset(self.egos[handle].path)
+                if self.surface is not None:  # its tiles and rocks before the step (issue 142)
+                    self.surface.placed(self.egos[handle].path, d.pose)
         if self.sky.time is not None and self.sky.time.get("animation") \
                 and sim_time - self.sky_moved_at >= 1.0:
             self.sky_moved_at = sim_time  # an animated time of day: the sun moves each second
