@@ -780,14 +780,26 @@ def _now():
     return time.perf_counter()
 
 
+MAX_IN_FLIGHT = 2  # keys written to the tile process and not yet answered (issue 139)
+MAX_QUEUED = 64  # keys waiting to be written; past it the oldest is dropped as stale
+
+
 class TileProcess:
     """Makes tiles in a child process: a thread in the caller competes for the GIL with the
     simulation loop (in Isaac it made 2 of the 3 tiles a second 80 km/h needs). The child is
     `python -m scensim_isaac_world.road_detail --worker`, numpy only, on pipes, not
     multiprocessing: spawn would import the caller's __main__ again (a second SimulationApp),
-    fork a process holding CUDA. The executor's `submit` and `shutdown`, for `Detail`."""
+    fork a process holding CUDA. The executor's `submit` and `shutdown`, for `Detail`.
+
+    Issue 139: `submit` only queues the key, under the lock, and never blocks; a writer thread
+    writes the keys, outside the lock, at most MAX_IN_FLIGHT unanswered, and the reader takes
+    the lock only to pop a finished job. Before, `submit` wrote under the lock the reader
+    needed, and a burst of keys that filled the worker's stdin, its 1.7 MB results filling its
+    stdout, hung all three. Past MAX_QUEUED waiting keys the oldest is dropped: its future
+    fails ("dropped"), and the caller makes that tile itself if it still wants it."""
 
     def __init__(self, corridors, spacing, tile, extras=None):
+        import collections
         import os
         import pickle
         import subprocess
@@ -801,27 +813,83 @@ class TileProcess:
                                       "--worker"], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, env=env, cwd=root)
         self.lock = threading.Lock()
-        self.jobs = {}  # (i, j) -> future, in the order asked
+        self.cond = threading.Condition(self.lock)
+        self.jobs = {}  # (i, j) -> future, waiting or in flight
+        self.queue = collections.deque()  # keys waiting to be written, oldest first
+        self.in_flight = 0
+        self.dropped = []  # futures to fail, by the writer, outside every lock
+        self.closed = False
+        self.dropped_n = 0
         pickle.dump((corridors, spacing, tile, extras), self.proc.stdin)
         self.proc.stdin.flush()
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
+        self.writer = threading.Thread(target=self._write, daemon=True)
+        self.writer.start()
 
     def submit(self, fn, i, j):
         import concurrent.futures
-        import pickle
 
+        key = (i, j)
         job = concurrent.futures.Future()
         job.set_running_or_notify_cancel()
         with self.lock:
-            self.jobs[(i, j)] = job
-            try:
-                pickle.dump((i, j), self.proc.stdin)
-                self.proc.stdin.flush()
-            except (BrokenPipeError, ValueError, OSError) as e:
-                self.jobs.pop((i, j))
-                job.set_exception(e)
+            had = self.jobs.get(key)
+            if had is not None:  # waiting or in flight: the same tile
+                return had
+            closed = self.closed
+            if not closed:
+                self.jobs[key] = job
+                self.queue.append(key)
+                while len(self.queue) > MAX_QUEUED:
+                    old = self.queue.popleft()
+                    self.dropped.append((self.jobs.pop(old), "dropped: stale (issue 139)"))
+                    self.dropped_n += 1
+                self.cond.notify_all()
+        if closed:  # outside the lock, as every completion
+            job.set_exception(RuntimeError("road tile process closed"))
         return job
+
+    def _write(self):
+        import pickle
+
+        while True:
+            with self.cond:
+                while not (self.dropped or self.closed
+                           or (self.queue and self.in_flight < MAX_IN_FLIGHT)):
+                    self.cond.wait()
+                drops, self.dropped = self.dropped, []
+                key = None
+                if not self.closed and self.queue and self.in_flight < MAX_IN_FLIGHT:
+                    key = self.queue.popleft()
+                    self.in_flight += 1
+                closed = self.closed
+            for job, why in drops:
+                job.set_exception(RuntimeError(why))
+            if key is not None:
+                try:
+                    pickle.dump(key, self.proc.stdin)
+                    self.proc.stdin.flush()
+                except (BrokenPipeError, ValueError, OSError) as e:
+                    self._fail_all(f"road tile process: {e!r}")
+                    return
+            elif closed:
+                try:
+                    self.proc.stdin.close()
+                except OSError:
+                    pass
+                return
+
+    def _fail_all(self, why):
+        with self.cond:
+            self.closed = True
+            jobs = list(self.jobs.values()) + [j for j, _ in self.dropped]
+            self.jobs, self.dropped = {}, []
+            self.queue.clear()
+            self.cond.notify_all()
+        for job in jobs:
+            if not job.done():
+                job.set_exception(RuntimeError(why))
 
     def _read(self):
         import pickle
@@ -830,22 +898,25 @@ class TileProcess:
             try:
                 key, t, ms, extra, look = pickle.load(self.proc.stdout)
             except Exception as e:  # the child is gone: every waiting tile fails
-                with self.lock:
-                    jobs, self.jobs = list(self.jobs.values()), {}
-                for job in jobs:
-                    job.set_exception(RuntimeError(f"road tile process ended: {e!r}"))
+                self._fail_all(f"road tile process ended: {e!r}")
                 return
-            with self.lock:
+            with self.cond:
                 job = self.jobs.pop(key, None)
+                self.in_flight -= 1
+                self.cond.notify_all()
             if job is not None:
                 job.set_result((t, ms, extra, look))
 
     def shutdown(self, wait=False, cancel_futures=True):
-        try:
-            self.proc.stdin.close()
-        except OSError:
-            pass
+        with self.cond:
+            self.closed = True
+            if cancel_futures:
+                self.dropped += [(self.jobs.pop(k), "road tile process closed")
+                                 for k in list(self.queue)]
+                self.queue.clear()
+            self.cond.notify_all()
         if wait:
+            self.writer.join()
             self.proc.wait()
         else:
             self.proc.terminate()
