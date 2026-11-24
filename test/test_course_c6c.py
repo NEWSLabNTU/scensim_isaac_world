@@ -77,6 +77,29 @@ class Profile(unittest.TestCase):
             self.assertIn(speed, cc.REF_WB if name == "washboard" else cc.REF_CC, case)
 
 
+# A corridor with every feature but a profile: its heights' sha256 at siw 7813843 (before
+# 086 C6c's profiles), computed with numpy 1.21 (the gate host's, Jammy's). Another numpy may
+# round the roughness's FFT differently, so the test runs on that numpy only.
+GOLDEN = "f76f2041b871e556b5428d5cd322650faf44ddf0ab1efafdb54a193de0754b8b"
+GOLDEN_NUMPY = "1.21"
+
+
+class Unchanged(unittest.TestCase):
+    @unittest.skipUnless(np.__version__.startswith(GOLDEN_NUMPY + "."),
+                         f"the golden hash is numpy {GOLDEN_NUMPY}'s")
+    def test_a_corridor_without_profiles_is_byte_identical_to_before(self):
+        import hashlib
+        c, = road_layer.parse({"corridors": [{
+            "centreline": [[0, 0], [120, 0], [200, 40]], "seed": 7, "ruts": {}, "potholes": {},
+            "water_bars": {}, "cleats": {"at": [[30.0, 0.05, 0.2]]},
+            "washboard": [{"u0": 60.0, "u1": 90.0}]}]})
+        self.assertEqual(c.profiles, ())
+        d = rd.Detail([c], workers=0)
+        x, y = np.meshgrid(np.arange(-10, 210, 0.37), np.arange(-15, 60, 0.41))
+        h = np.asarray(d.height(x, y), dtype=np.float64)
+        self.assertEqual(hashlib.sha256(h.tobytes()).hexdigest(), GOLDEN)
+
+
 class Check(unittest.TestCase):
     def test_welch_finds_a_tone_and_its_height_over_the_low_band(self):
         rate = 480.0
