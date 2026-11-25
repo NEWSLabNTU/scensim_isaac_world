@@ -27,6 +27,12 @@ class Issue161(unittest.TestCase):
         self.assertIn("READBACK_AFTER_STEP", caps)
         self.assertIn("ENVIRONMENT_APPLIED", caps)
 
+    def test_k9f_a_the_road_read_back_and_zones_are_declared(self):
+        caps = declared()
+        self.assertIn("ROAD_CONDITION_APPLIED", caps)   # needs ROAD_CONDITION
+        self.assertIn("ROAD_CONDITION", caps)
+        self.assertIn("ROAD_ZONES", caps)               # needs ROAD_CONDITION_APPLIED
+
     def test_every_declared_capability_is_known_to_the_protocol_pin(self):
         unknown = [c for c in declared() if c not in pb.CAPABILITY]
         self.assertEqual(unknown, [])

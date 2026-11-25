@@ -1091,3 +1091,51 @@ class NamedMapTest(unittest.TestCase):
                                              "scensim.default.Road": "lava"})
         self.assertIn("no ground label 'Lawn'", str(e.exception))
         self.assertIn("unknown class 'lava'", str(e.exception))
+
+
+class AppliedConditionTest(unittest.TestCase):
+    """092 K9f-a: the road state read back (`ROAD_CONDITION_APPLIED`), as the layer holds it."""
+
+    ZONES = [{"id": "goal", "class": "asphalt", "polygon": SQUARE},
+             {"id": "ford", "wetness": "lowFlooded", "water_depth": 0.12,
+              "polygon": [[20, 0], [30, 0], [30, 10], [20, 10]]}]
+
+    def test_a_zone_set_to_ice_reads_back_ice_with_the_tables_mu(self):
+        m = smap(self.ZONES)
+        cond, held = surfaces.road_condition(m, 1.0, "dry", {"scensim.zone.goal.class": "ice"})
+        a = surfaces.applied_condition(held, cond, ["goal"])
+        self.assertEqual((a["friction_scale_factor"], a["wetness"]), (1.0, "dry"))
+        z = a["zones"]["goal"]
+        self.assertEqual((z["surface_class"], z["wetness"], z["water_depth"]), ("ice", "dry", None))
+        self.assertAlmostEqual(z["mu"], TABLE["ice"].mu, delta=1e-12)
+        # the map's own class when the condition leaves it
+        cond, held = surfaces.road_condition(m, 1.0, "dry", {})
+        z = surfaces.applied_condition(held, cond, ["goal"])["zones"]["goal"]
+        self.assertEqual(z["surface_class"], "asphalt")
+        self.assertAlmostEqual(z["mu"], ASPHALT, delta=1e-12)
+
+    def test_mu_is_the_class_times_its_wet_factor_times_the_scale(self):
+        m = smap(self.ZONES)
+        cond, held = surfaces.road_condition(m, 0.8, "moist", {"scensim.zone.goal.class": "ice"})
+        z = surfaces.applied_condition(held, cond, ["goal"])["zones"]["goal"]
+        self.assertEqual(z["wetness"], "moist")       # the world's, where the zone sets none
+        ice = TABLE["ice"]
+        self.assertAlmostEqual(z["mu"], ice.mu * ice.wet[surfaces.WETNESS.index("moist")] * 0.8,
+                               delta=1e-12)
+
+    def test_a_zone_with_no_class_and_its_own_water(self):
+        m = smap(self.ZONES)
+        cond, held = surfaces.road_condition(m, 1.0, "dry", {})
+        a = surfaces.applied_condition(held, cond, ["ford", "goal"])
+        self.assertEqual(sorted(a["zones"]), ["ford", "goal"])
+        z = a["zones"]["ford"]
+        self.assertEqual((z["surface_class"], z["mu"]), ("", 0.0))
+        self.assertEqual((z["wetness"], z["water_depth"]), ("lowFlooded", 0.12))
+        self.assertEqual(surfaces.applied_condition(held, cond, [])["zones"], {})
+
+    def test_a_zone_the_map_lacks_is_refused_by_name(self):
+        m = smap(self.ZONES)
+        cond, held = surfaces.road_condition(m, 1.0, "dry", {})
+        with self.assertRaises(SurfaceError) as e:
+            surfaces.applied_condition(held, cond, ["nowhere"])
+        self.assertIn("nowhere", str(e.exception))

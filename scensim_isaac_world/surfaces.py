@@ -776,6 +776,35 @@ def peak_mu(table: ClassTable, s: Surface, condition: RoadCondition, speed):
     return condition.friction_scale * mu / table[table.reference].mu
 
 
+def applied_condition(surface_map, condition, zone_ids=()):
+    """`ROAD_CONDITION_APPLIED` (092 K9f-a): the road state `surface_map` and `condition` (a
+    SurfaceLayer's `map` and `condition` after `set_condition`) apply, as the world protocol's
+    reply has it: the world-wide scale and wetness, and for each of `zone_ids` its class, its
+    wetness (the world's where it sets none), its water depth (None: none of its own, or a
+    raster, which is no one number) and mu: the class's mu times its wet factor at that
+    wetness times the scale (`ZoneApplied.mu`; at rest: hydroplaning's speed factor and the
+    standing water's level are not in it). A zone with no class of its own reads back class ""
+    and mu 0: the ground's labels decide its class there, so there is none to read back. An
+    id the map does not have is a SurfaceError (set_condition refused it already)."""
+    zones = {z.id: z for z in surface_map.zones}
+    missing = [z for z in zone_ids if z not in zones]
+    if missing:
+        raise SurfaceError(f"zone(s) {', '.join(missing)} not in {surface_map.path}")
+    out = {}
+    for zid in zone_ids:
+        z = zones[zid]
+        wetness = z.wetness or condition.wetness
+        depth = z.water_depth if isinstance(z.water_depth, (int, float)) else None
+        if z.cls is None:
+            cls, mu = "", 0.0
+        else:
+            c = surface_map.table[z.cls]
+            cls, mu = z.cls, c.mu * c.wet[WETNESS.index(wetness)] * condition.friction_scale
+        out[zid] = {"surface_class": cls, "wetness": wetness, "water_depth": depth, "mu": mu}
+    return {"friction_scale_factor": condition.friction_scale, "wetness": condition.wetness,
+            "zones": out}
+
+
 def graph_at(graph, slip):
     """PhysX's friction-vs-slip graph at |slip|: linear between its points, flat past them."""
     s = abs(slip)

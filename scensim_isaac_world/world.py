@@ -128,8 +128,11 @@ class IsaacWorld(WorldBase):
     simulator_name = "isaac"
     # READBACK_AFTER_STEP (scensim issue 161): the shell reads the weather back again after
     # the step that follows a send
+    # ROAD_CONDITION_APPLIED and ROAD_ZONES (092 K9f-a): the road state read back from the
+    # surface layer, the zones a condition named among it
     capabilities = ("SIGNALS", "TRACKED_MOTION", "CONTACTS", "ROAD_CONDITION", "ENVIRONMENT",
-                    "ENVIRONMENT_APPLIED", "READBACK_AFTER_STEP")
+                    "ENVIRONMENT_APPLIED", "READBACK_AFTER_STEP", "ROAD_CONDITION_APPLIED",
+                    "ROAD_ZONES")
     # The bridge splits SSv2's step into PhysX steps of at most this (the world server's
     # --physics-hz; Isaac's default 60 Hz).
     max_physics_dt = 1 / 60
@@ -541,6 +544,13 @@ class IsaacWorld(WorldBase):
             self.surface.cut_changed = False
             if self.surface.tiles:
                 self._settle_cut()
+
+    def applied_road_condition(self, zone_ids):
+        """`ROAD_CONDITION_APPLIED` (092 K9f-a): the road state the surface layer holds now
+        (`surfaces.applied_condition`); with no surface map, the default road and no zone."""
+        if self.surface is None:
+            return {"friction_scale_factor": 1.0, "wetness": "dry", "zones": {}}
+        return surfaces.applied_condition(self.surface.map, self.surface.condition, zone_ids)
 
     def _no_map(self):
         """The surface layer of a world without a surface map: every label the reference
