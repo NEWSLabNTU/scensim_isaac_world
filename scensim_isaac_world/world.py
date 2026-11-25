@@ -467,6 +467,12 @@ class IsaacWorld(WorldBase):
         layer.add_record_zones(road_layer.strip_zones(corridors))
         layer.road = road_layer.RoadLayer(corridors, origin, self._apply_force)
         layer.road_meshes = road_layer.MeshStream(self.stage, layer.road)
+        # issue 168: the world's road drawn under the detail, so a ray meets the detail's
+        # potholes and ruts, not the base road over them
+        from . import base_drop
+
+        layer.base_render = road_layer.BaseRender(
+            self.stage, base_drop.render_paths(path, self.ground), base_drop.drop(path, corridors))
         from . import rock_layer
 
         # The detail's collision tiles, with or without rocks (issue 119): the true surface the

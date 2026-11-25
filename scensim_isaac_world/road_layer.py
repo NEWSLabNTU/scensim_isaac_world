@@ -95,6 +95,8 @@ TOP_KEYS = {
     "corridors": "a list of corridors, each its centreline and its features",
     "ground": "the prims of the world's own road ground, which the rocks do not collide with "
               "(a list of prim paths; optional)",
+    "base_render": "the prims whose render is drawn lowered under the detail (issue 168; a list "
+                   "of prim paths, [] for none; absent: the world's ground prims named Road)",
 }
 CORRIDOR_KEYS = {
     "centreline": "two or more [x, y] or [x, y, z] in the map frame, m (z: the base road's); "
@@ -118,6 +120,9 @@ CORRIDOR_KEYS = {
     "section_in_base": "true when the world's road already carries the section (a course built "
                        "from its record, 086 C5b): the layer adds the features only (default "
                        "false)",
+    "base_drop": "{depth, sha256}: the corridor's deepest detail below the base road, m, and "
+                 "the hash of the entry and stations it was sampled from (issue 168; written by "
+                 "`python -m scensim_isaac_world.base_drop <map> --write`)",
 }
 
 
@@ -825,6 +830,57 @@ def _fit_slope(x, y, z):
         return float(ga), float(gb)
     sxz, syz = dx @ dz, dy @ dz
     return float((syy * sxz - sxy * syz) / det), float((sxx * syz - sxy * sxz) / det)
+
+
+class BaseRender:
+    """The world's own road drawn `drop` m lower than it is, render only (scensim issue 168):
+    the detail's render mesh (`MeshStream`) is base plus detail, so with the world's road drawn
+    at the base a ray met the base wherever the detail was below it (a pothole, a rut). Each
+    prim in `paths` is hidden (its collision stays: PhysX does not read visibility) and drawn
+    again under ROOT, a reference to the layer that defines it, `drop` m down, its collision
+    off. `base_drop.drop` says how far."""
+
+    ROOT = "/World/RoadBaseRender"
+
+    def __init__(self, stage, paths, drop):
+        from pxr import Gf, Usd, UsdGeom, UsdPhysics
+
+        self.stage, self.drop = stage, float(drop)
+        self.hidden, self.made = [], []
+        cache = UsdGeom.XformCache()
+        # one Python call, so PhysX sees the copies with their collision already off at its
+        # next step (no Sdf.ChangeBlock: Usd cannot define prims inside one)
+        for n, p in enumerate(paths):
+            src = stage.GetPrimAtPath(p)
+            if not src or not src.IsValid():
+                log.warning("issue 168: %s is not on the stage; its render is not lowered", p)
+                continue
+            spec = src.GetPrimStack()[-1]  # the defining spec, in the world's own layer
+            parent = cache.GetLocalToWorldTransform(src.GetParent())
+            down = Gf.Matrix4d().SetTranslate(Gf.Vec3d(0.0, 0.0, -self.drop))
+            holder = UsdGeom.Xform.Define(stage, f"{self.ROOT}/b{n}")
+            holder.AddTransformOp().Set(parent * down)
+            copy = stage.DefinePrim(f"{self.ROOT}/b{n}/{src.GetName()}")
+            copy.GetReferences().AddReference(spec.layer.identifier, spec.path)
+            for q in Usd.PrimRange(copy):
+                if q.HasAPI(UsdPhysics.CollisionAPI):
+                    UsdPhysics.CollisionAPI(q).CreateCollisionEnabledAttr().Set(False)
+            UsdGeom.Imageable(src).MakeInvisible()
+            self.made.append(holder.GetPath())
+            self.hidden.append(src.GetPath())
+        log.info("issue 168: the world's road render %s drawn %.3f m lower under the detail",
+                 [str(p) for p in self.hidden], self.drop)
+
+    def remove(self):
+        from pxr import UsdGeom
+
+        for path in self.hidden:
+            prim = self.stage.GetPrimAtPath(path)
+            if prim and prim.IsValid():
+                UsdGeom.Imageable(prim).MakeVisible()
+        if self.stage.GetPrimAtPath(self.ROOT):
+            self.stage.RemovePrim(self.ROOT)
+        self.hidden, self.made = [], []
 
 
 class MeshStream:

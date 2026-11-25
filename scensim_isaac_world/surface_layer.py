@@ -175,6 +175,7 @@ class SurfaceLayer:
         # 066 R5: the car's anti-roll bars where the road layer (whose corner has them) is off
         self.bars = roll_bars.RollBars(apply_force)
         self.road_meshes = None
+        self.base_render = None  # road_layer.BaseRender: the world's road drawn lower (issue 168)
         self.road_rocks = None  # rock_layer.RockStream: the road's rocks' prims (R4)
         self.road_colliders = None  # rock_layer.DetailColliders: the detail's tiles (issue 119)
         self.mu = {}  # (vehicle path, wheel) -> the friction the surface gives, before the road's
@@ -608,6 +609,9 @@ class SurfaceLayer:
         self.tiles = {}
         if self.road_meshes is not None:
             self.road_meshes.remove()
+        if self.base_render is not None:
+            self.base_render.remove()
+            self.base_render = None
         if self.road_rocks is not None:
             self.road_rocks.remove()
         if self.road_colliders is not None:
