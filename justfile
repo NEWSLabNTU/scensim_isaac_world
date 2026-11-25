@@ -14,9 +14,13 @@ build:
     source /opt/ros/humble/setup.bash
     colcon build --symlink-install --base-paths .
 
-# Tests that need no Isaac (the pure modules); pxr and warp ones skip outside Isaac's Python
+# Tests that need no Isaac (the pure modules); pxr and warp ones skip outside Isaac's Python.
+# Needs the deps/ checked out recursively (aib finds sim_vehicle_ecu in its own deps/). Shielded
+# from a user-site numpy 2 (pip --user) that breaks the system packages built for numpy 1
+# (PYTHONNOUSERSITE, as scensim's lane), with the world protocol's shell from deps/ (scensim
+# issue 184). The ROS-only tests skip where ROS 2's launch is not importable.
 test:
-    python3 -m unittest discover -s test
+    PYTHONNOUSERSITE=1 PYTHONPATH=deps/scensim_world_protocol/scensim_world_server${PYTHONPATH:+:$PYTHONPATH} python3 -m unittest discover -s test
 
 # The tests, then pyflakes
 check: test

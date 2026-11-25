@@ -1,5 +1,6 @@
 """A closed course (a circuit, `road.closed: true`): the loop from OSM-like ways, its centreline,
 ribbons and lanelets closing on themselves (roadmap 058, 060 M7); synthetic, no network."""
+import importlib.util
 import math
 import os
 import sys
@@ -53,10 +54,9 @@ def course(frame, start_xy):
                      "lane_width": 6.0, "shoulder": 1.5}}
 
 
-try:
-    import pyproj  # noqa: F401 - centreline.Frame projects with it
+if importlib.util.find_spec("pyproj") is not None:  # centreline.Frame projects with it
     NO_PYPROJ = None
-except ImportError:
+else:
     # The course's meshes and lanelets are the system Python's work (pyproj, lanelet2), not the
     # world server's in Isaac's venv, which lacks pyproj (scensim_isaac_world.course; issue 090)
     NO_PYPROJ = ("no pyproj in this Python: the course's centreline and lanelets are built by the "

@@ -5,11 +5,20 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-try:
-    import launch  # noqa: F401
-    HAVE_LAUNCH = True
-except ImportError:
-    HAVE_LAUNCH = False
+
+
+def _have_launch() -> bool:
+    """ROS 2's launch, importable with its actions. Not a bare `import launch`: in this
+    repository's own checkout that finds its launch/ directory (the launch files) as a namespace
+    package (scensim issue 184). find_spec imports the parent, so a launch that fails to import
+    (Isaac's bundled copy, without lark) raises: any error counts as no launch."""
+    try:
+        return importlib.util.find_spec("launch.actions") is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+HAVE_LAUNCH = _have_launch()
 
 PATH = Path(__file__).resolve().parents[1] / "launch" / "world_server.launch.py"
 

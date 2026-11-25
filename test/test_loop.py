@@ -1,6 +1,5 @@
 """The minimal Lanelet2 loop of an authored field (scensim roadmap 091 W17)."""
 import math
-import os
 import re
 import sys
 import tempfile
