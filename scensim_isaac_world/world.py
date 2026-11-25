@@ -126,8 +126,10 @@ class IsaacWorld(WorldBase):
     """The world protocol's `World` on Isaac Sim (roadmap 046: `scensim_world_server`)."""
 
     simulator_name = "isaac"
+    # READBACK_AFTER_STEP (scensim issue 161): the shell reads the weather back again after
+    # the step that follows a send
     capabilities = ("SIGNALS", "TRACKED_MOTION", "CONTACTS", "ROAD_CONDITION", "ENVIRONMENT",
-                    "ENVIRONMENT_APPLIED")
+                    "ENVIRONMENT_APPLIED", "READBACK_AFTER_STEP")
     # The bridge splits SSv2's step into PhysX steps of at most this (the world server's
     # --physics-hz; Isaac's default 60 Hz).
     max_physics_dt = 1 / 60
