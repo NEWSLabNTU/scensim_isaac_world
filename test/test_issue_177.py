@@ -3,6 +3,7 @@ record step writes the map's `road_detail.yaml` for a fixture with features (the
 record in course/ stays as it was), re-writes its own, refuses anyone else's; the world server
 names a course record whose features no map file carries. No Isaac."""
 import contextlib
+import importlib.util
 import io
 import os
 import sys
@@ -15,7 +16,13 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scensim_isaac_world import road_layer  # noqa: E402
-from scensim_isaac_world.course import __main__ as course_main  # noqa: E402
+from scensim_isaac_world.course import fixture, record  # noqa: E402
+
+# The builder's steps project with pyproj (centreline.Frame): the course is the system Python's
+# work, not the world server's in Isaac's venv, which lacks it (issues 090, 149). The world
+# server's side below builds its record without it.
+NO_PYPROJ = None if importlib.util.find_spec("pyproj") else (
+    "no pyproj in this Python: the course builder runs under the system Python, not Isaac's")
 
 COURSES = os.path.join(os.path.dirname(__file__), "..", "scensim_isaac_world", "courses")
 
@@ -25,8 +32,24 @@ def course_path(name):
 
 
 def build(map_dir, name="fixture_c6a", steps=("centreline", "record")):
+    from scensim_isaac_world.course import __main__ as course_main
+
     with contextlib.redirect_stdout(io.StringIO()):
         return course_main.main([course_path(name), map_dir, *steps])
+
+
+def recorded(map_dir, name="fixture_c6a", map_file=True):
+    """A fixture's course record (and, with `map_file`, its map file) without the builder's
+    projection: what the world server finds on disk."""
+    with open(course_path(name)) as f:
+        course = yaml.safe_load(f)
+    work = os.path.join(map_dir, "course")
+    os.makedirs(work, exist_ok=True)
+    feats = course["fixture"].get("features")
+    record.write(work, fixture.stations(course, fixture.centreline(course)), in_mesh=True,
+                 features=feats)
+    if map_file:
+        record.write_map(map_dir, course["name"], feats)
 
 
 def features_of(name):
@@ -34,6 +57,7 @@ def features_of(name):
         return yaml.safe_load(f)["fixture"]["features"]
 
 
+@unittest.skipIf(NO_PYPROJ, NO_PYPROJ or "")
 class TheMapsRoadDetail(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -124,21 +148,20 @@ class TheWorldServerSaysSo(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_unread_features_are_named(self):
-        build(self.map)
-        os.remove(os.path.join(self.map, "road_detail.yaml"))
+        recorded(self.map, map_file=False)
         msg = road_layer.course_record_unread(self.map)
         self.assertIsNotNone(msg)
         self.assertIn(os.path.join(self.map, "course", "road_detail.yaml"), msg)
         self.assertIn("record", msg)
 
     def test_nothing_to_say_with_the_maps_file_or_no_features(self):
-        build(self.map)
+        recorded(self.map)
+        self.assertTrue(os.path.exists(road_layer.find(self.map)))
         self.assertIsNone(road_layer.course_record_unread(self.map))
         with tempfile.TemporaryDirectory() as plain:
             self.assertIsNone(road_layer.course_record_unread(plain))
-            build(plain, name="fixture_c5")
+            recorded(plain, name="fixture_c5")
             self.assertIsNone(road_layer.course_record_unread(plain))
-
 
 if __name__ == "__main__":
     unittest.main()
