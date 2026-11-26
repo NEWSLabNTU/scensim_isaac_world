@@ -40,7 +40,7 @@ from pxr import Gf, PhysicsSchemaTools, PhysxSchema, Sdf, Usd, UsdGeom, UsdLux, 
 from scensim_world_server.world import World as WorldBase
 
 from . import motion as body_motion, names, signals as signal_table, sky as scenario_sky
-from . import surfaces, wheels as wheel_topic
+from . import contacts as contact_rows, surfaces, wheels as wheel_topic
 from . import vehicle_assets
 from . import walkers as walker_gait
 from .catalogue import check_ego, ego_body, ego_model, load_ego
@@ -258,6 +258,7 @@ class IsaacWorld(WorldBase):
         # materials (40 s for a MetaHuman walker), which `spawn` takes, not a Step (044).
         self.rendered_bodies = set()
         self.ground_cache = {}  # prim path -> whether it is ground (contacts)
+        self.soil_pair_logged = False  # issue 192: the first soil-ground pair, logged once a load
         self.signal_table = []  # the map's signals, as LoadWorld gave them (044 B)
         self.signal_colours = {}  # OpenDRIVE id -> colour shown
         self.lenses = {}  # OpenDRIVE id -> {colour: [lens prim paths]}
@@ -312,6 +313,7 @@ class IsaacWorld(WorldBase):
         for handle in list(self.entities):
             self.despawn(handle)
         self.ground_cache.clear()
+        self.soil_pair_logged = False
         if self.surface is not None:
             self._save_ruts()
             # The soil zones' own ground goes, and the world's comes back under it.
@@ -525,7 +527,14 @@ class IsaacWorld(WorldBase):
     def _make_tiles(self, zone, spacing, origin):
         from .soil_tiles import SoilTiles
 
-        return SoilTiles(self.stage, zone, spacing, origin, cut_root=ENVIRONMENT)
+        tiles = SoilTiles(self.stage, zone, spacing, origin, cut_root=ENVIRONMENT)
+        # Issue 192: the soil zones' own ground (the cut copies of the world's road, the flat
+        # box, the wheel plates) is ground, as the road it replaces was; nothing there is a body
+        # a scenario hits (the ruts and ridges are render meshes, without collision).
+        if contact_rows.SOIL_ROOT not in self.ground:
+            self.ground = [*self.ground, contact_rows.SOIL_ROOT]
+            self.ground_cache.clear()
+        return tiles
 
     def _apply_force(self, path, force, position):
         """A force (N) at a world point on body `path` for the next physics step (the soil's
@@ -1577,32 +1586,35 @@ class IsaacWorld(WorldBase):
     def _is_ground(self, path):
         g = self.ground_cache.get(path)
         if g is None:
-            g = any(path == p or path.startswith(p + "/") for p in self.ground)
+            g = contact_rows.is_under(path, self.ground)
             self.ground_cache[path] = g
         return g
+
+    def _soil_pair(self, header, mine, theirs, data):
+        """Issue 192: the first contact of a load between a reporter and the soil zones' ground
+        (dropped as ground), logged once with its colliders and smallest separation: which pair
+        gave the 0.0 contacts before the fix."""
+        if self.soil_pair_logged or not contact_rows.is_under(theirs, [contact_rows.SOIL_ROOT]):
+            return
+        self.soil_pair_logged = True
+        c0 = str(PhysicsSchemaTools.intToSdfPath(header.collider0))
+        c1 = str(PhysicsSchemaTools.intToSdfPath(header.collider1))
+        try:
+            sep = contact_rows.separation(header, data)
+        except AttributeError:  # a build whose contact data has no separation
+            sep = None
+        log.info("issue 192: %s touches the soil zones' ground %s (dropped as ground): colliders "
+                 "%s and %s, %d point(s), smallest separation %s", mine, theirs, c0, c1,
+                 header.num_contact_data, "n/a" if sep is None else f"{sep:.4f} m")
 
     def _collect_contacts(self, touching, dt):
         headers, data = self.sim.get_contact_report()
         rocks = self.surface.road_rocks if self.surface is not None else None
         if rocks is not None:  # issue 123's self-check, on the same report
             rocks.check_base(headers, dt)
-        for header in headers:
-            if str(header.type).endswith("CONTACT_LOST"):
-                continue
-            a0 = str(PhysicsSchemaTools.intToSdfPath(header.actor0))
-            a1 = str(PhysicsSchemaTools.intToSdfPath(header.actor1))
-            for mine, theirs in ((a0, a1), (a1, a0)):
-                handle = self.by_path.get(mine)
-                if handle not in self.reporters:
-                    continue
-                if self._is_ground(theirs):
-                    continue
-                other = self.by_path.get(theirs, 0)
-                impulse = 0.0
-                for i in range(header.contact_data_offset,
-                               header.contact_data_offset + header.num_contact_data):
-                    v = data[i].impulse
-                    impulse += math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
-                key = (handle, other, theirs)
-                touching[key] = touching.get(key, 0.0) + impulse
-                # Each reporting side has its contact: two reporters touching are two (044).
+        for handle, other, theirs, impulse in contact_rows.rows(
+                headers, data, lambda a: str(PhysicsSchemaTools.intToSdfPath(a)), self.by_path,
+                self.reporters, self._is_ground,
+                on_ground=lambda h, mine, theirs: self._soil_pair(h, mine, theirs, data)):
+            key = (handle, other, theirs)
+            touching[key] = touching.get(key, 0.0) + impulse
