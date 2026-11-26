@@ -121,6 +121,7 @@ def write_fixture_record(work, course, st):
     path = record.write_map(os.path.dirname(os.path.abspath(work)), course["name"], features)
     if path:
         out["map_road_detail"] = path
+        out["then"] = f"python3 -m scensim_isaac_world.base_drop {os.path.dirname(path)} --write"
     return out
 
 

@@ -178,8 +178,8 @@ def write_map(map_dir, course_name, features):
         f.write("# The map's road detail (scensim issue 177), which the world server reads:\n"
                 "# the course record's corridor (course/road_detail.yaml, the record, as it\n"
                 "# was) and the fixture's features. Written again by the record step; do not\n"
-                "# edit (edit the course's features). base_drop (issue 168) is sampled under\n"
-                "# Isaac's Python: python -m scensim_isaac_world.base_drop <map dir> --write\n"
+                "# edit (edit the course's features). Its base_drop (issue 168): python3 -m\n"
+                "# scensim_isaac_world.base_drop <map dir> --write (numpy, seconds)\n"
                 + mark +
                 f"schema: {rr.SCHEMA}\ncorridors:\n")
         for i, line in enumerate(yaml.safe_dump(entry, default_flow_style=None,
