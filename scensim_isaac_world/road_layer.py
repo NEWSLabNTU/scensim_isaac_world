@@ -368,6 +368,32 @@ def find(map_or_file, state=None):
     return str(map_or_file)
 
 
+def course_record_unread(map_dir, state=None):
+    """scensim issue 177: when the map has no road detail (`find`) but its course record
+    (`course/road_detail.yaml`, the course builder's) carries a fixture's features, a line
+    saying so, naming both files and the step that writes the map's; else None. A course
+    record without features is a road course's record, which is not a road layer."""
+    import yaml
+
+    if not map_dir or os.path.exists(find(map_dir, state)):
+        return None
+    rec = os.path.join(map_dir, "course", FILE)
+    try:
+        with open(rec) as f:
+            corridors = (yaml.safe_load(f) or {}).get("corridors") or []
+    except (OSError, yaml.YAMLError, AttributeError):
+        return None
+    keys = sorted({k for c in corridors if isinstance(c, dict) for k in c}
+                  - {"stations", "section_in_base", "centreline", "section", "seed", "base_drop"})
+    if not keys:
+        return None
+    return (f"road detail: {find(map_dir, state)} is missing, so no road layer is loaded, but the "
+            f"course record {rec} carries a fixture's features ({', '.join(keys)}), which the "
+            "world server does not read from course/ (scensim issue 177); write the map's with "
+            "the course builder's record step: python3 -m scensim_isaac_world.course "
+            "<course.yaml> <map dir> record")
+
+
 def describe(corridors):
     """One line per corridor: its length and features."""
     out = []

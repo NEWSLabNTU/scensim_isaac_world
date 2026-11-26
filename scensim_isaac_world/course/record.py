@@ -142,3 +142,47 @@ def load(work):
     if problems:
         raise ValueError("\n".join(problems))
     return st
+
+
+MAP_MARK = "# scensim course record step: course "   # the map file's own line (scensim issue 177)
+
+
+def write_map(map_dir, course_name, features):
+    """scensim issue 177: `<map dir>/road_detail.yaml`, the map's road detail, for a fixture
+    with features: the course record's corridor (its stations in course/, the section in the
+    base) and the features, which the world server reads (it reads the map's file only; the
+    record in course/ stays the course's). A map file this step wrote for this course is
+    written again; any other is refused (SystemExit naming it), never overwritten. None
+    without features; else the path written."""
+    import os
+
+    if not features:
+        return None
+    path = os.path.join(map_dir, YAML)
+    mark = f"{MAP_MARK}{course_name}\n"
+    if os.path.exists(path):
+        with open(path) as f:
+            head = [ln for ln in f.readlines()[:8] if ln.startswith(MAP_MARK)]
+        if head != [mark]:
+            owner = head[0][len(MAP_MARK):].strip() if head else None
+            raise SystemExit(
+                f"{path}: not written by this record step for course {course_name} "
+                + (f"(it names course {owner})" if owner else "(no record-step header)")
+                + "; refusing to overwrite it (scensim issue 177): move it away or merge "
+                  f"by hand from {os.path.join('course', YAML)}")
+    import yaml
+
+    entry = {"stations": f"course/{NPZ}", "section_in_base": True}
+    entry.update(features)
+    with open(path, "w") as f:
+        f.write("# The map's road detail (scensim issue 177), which the world server reads:\n"
+                "# the course record's corridor (course/road_detail.yaml, the record, as it\n"
+                "# was) and the fixture's features. Written again by the record step; do not\n"
+                "# edit (edit the course's features). base_drop (issue 168) is sampled under\n"
+                "# Isaac's Python: python -m scensim_isaac_world.base_drop <map dir> --write\n"
+                + mark +
+                f"schema: {rr.SCHEMA}\ncorridors:\n")
+        for i, line in enumerate(yaml.safe_dump(entry, default_flow_style=None,
+                                                sort_keys=False).splitlines()):
+            f.write(("  - " if i == 0 else "    ") + line + "\n")
+    return path

@@ -108,9 +108,20 @@ def write_record(work, course):
     fixture's from its spec (C5b)."""
     c = np.load(os.path.join(work, "centreline.npz"))
     if fixture.is_fixture(course):
-        return record.write(work, fixture.stations(course, c), in_mesh=True)
+        return write_fixture_record(work, course, fixture.stations(course, c))
     m = np.load(os.path.join(work, "meshes.npz"))
     return record.write(work, record.build(c, course, m))
+
+
+def write_fixture_record(work, course, st):
+    """A fixture's record (086 C5b, its features C6a) and, with features, the map's road
+    detail beside course/ (scensim issue 177: the world server reads only the map's)."""
+    features = course["fixture"].get("features")
+    out = record.write(work, st, in_mesh=True, features=features)
+    path = record.write_map(os.path.dirname(os.path.abspath(work)), course["name"], features)
+    if path:
+        out["map_road_detail"] = path
+    return out
 
 
 def saved_centreline(work):
@@ -139,8 +150,7 @@ def main_fixture(course, frame, map_dir, work, steps):
                            os.path.join(work, "meshes.npz"), rd.StationSection(st))
         print("geometry:", json.dumps(g))
     if "record" in steps:
-        print("record:", json.dumps(record.write(work, st, in_mesh=True,
-                                                 features=course["fixture"].get("features"))))
+        print("record:", json.dumps(write_fixture_record(work, course, st)))
     if "maps" in steps:
         mp = maps.build(c, course, frame, map_dir, course.get("speed_limit_kmh", 60.0))
         json.dump(mp, open(os.path.join(work, "maps.json"), "w"), indent=1)

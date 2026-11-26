@@ -393,7 +393,7 @@ class IsaacWorld(WorldBase):
         # 056, 086 C4: the maps a scenario may name (`scensim.surface_map`)
         self.surface.surface_dirs = tuple(os.path.join(r, surfaces.SURFACES_DIR) for r in roots)
         self.surface.ruts_roots = roots
-        self._load_road(entry.road, origin)
+        self._load_road(entry.road, origin, entry.map_dir, entry.state)
         if not os.path.exists(path):
             return
         log.info("surface map %s: %d zone(s)", path, len(self.surface.map.zones))
@@ -462,9 +462,14 @@ class IsaacWorld(WorldBase):
             log.info("authored world: physics scene %s off for the run (gravity %s, %s; "
                      "%s steps/s authored, %d used)", path, direction, magnitude, tsps, used)
 
-    def _load_road(self, path, origin):
-        """The world's road detail (066 R3, `road_layer`), on the surface layer."""
+    def _load_road(self, path, origin, map_dir=None, state=None):
+        """The world's road detail (066 R3, `road_layer`), on the surface layer. None: said
+        when the map's course record has features that no map file carries (scensim issue
+        177)."""
         if not os.path.exists(path):
+            unread = road_layer.course_record_unread(map_dir, state)
+            if unread:
+                log.warning("%s", unread)
             return
         layer = self.surface
         table = layer.map.table if getattr(layer, "map", None) is not None else None
