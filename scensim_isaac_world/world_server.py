@@ -168,6 +168,10 @@ def main(argv=None):
         raise Refused("; ".join(gone))
     if not args.physics_hz > 0:
         raise Refused(f"--physics-hz {args.physics_hz}: a rate > 0")
+    from . import bindings
+    lacking = bindings.missing()
+    if lacking:  # before Isaac starts, not minutes later at an import (scensim issue 195 L1b)
+        raise Refused(bindings.refusal(lacking))
     from scensim_world_server import lifetime
     from scensim_world_server.server import bind, run
 

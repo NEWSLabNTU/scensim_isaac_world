@@ -22,7 +22,10 @@ COURSE = os.path.join(ROOT, "scensim_isaac_world", "courses", "fixture_c5.yaml")
 # the ROS modules an ego's node imports (aib.ros), stood in for too
 ROS = ("rclpy,rosgraph_msgs,sensor_msgs,std_msgs,geometry_msgs,nav_msgs,builtin_interfaces,"
        "diagnostic_msgs,tf2_msgs,autoware_vehicle_msgs,autoware_control_msgs,tier4_vehicle_msgs,"
-       "autoware_perception_msgs,autoware_adapi_v1_msgs")
+       "autoware_perception_msgs,autoware_adapi_v1_msgs,autoware_sensing_msgs")
+# Isaac's message bindings the world server checks before Isaac starts (bindings.REQUIRED)
+BINDINGS = ("autoware_vehicle_msgs,autoware_control_msgs,autoware_perception_msgs,"
+            "autoware_sensing_msgs")
 COURSE_C6A = os.path.join(ROOT, "scensim_isaac_world", "courses", "fixture_c6a.yaml")
 # a script, not a module: run by path under aib.fake_kit
 RUN_PATH = """
@@ -88,8 +91,10 @@ class EntryPointTest(unittest.TestCase):
         self.assertIn(FORCED, output)  # failed where it builds the World, with its traceback
 
     def test_world_server(self):
+        # Isaac's message bindings stood in for: the server checks them before Isaac starts
+        # (scensim issue 195 L1b), and this test is about the World's failure after that
         code, output = run_fake("scensim_isaac_world.world_server", "--port", str(free_port()),
-                                extra="zmq")
+                                extra="zmq," + BINDINGS)
         self.assert_failed(code, output)
 
     def test_arc_drive(self):
