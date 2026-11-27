@@ -238,10 +238,54 @@ def write_cloud(pts, out, name, divide=DIVIDE_POINTS):
     return len(keys)
 
 
+def _under_ribbon(pts, road_points, road_faces):
+    """Which of `pts` lie under the road ribbon: inside one of its triangles' xy footprint (the
+    quads split 0-2, as `_sample_ribbon` splits them) and below the ribbon there. The lidar
+    cannot see those points (scensim issue 198). Each point is tested against every triangle
+    whose centroid lies within the largest triangle's reach of it: a triangle holding the point
+    has its centroid that close, and no point has more such centroids than any centroid has
+    within twice the reach, which bounds the nearest-k query exactly."""
+    from scipy.spatial import cKDTree
+
+    a, b, cc, d = (road_points[road_faces[:, j]] for j in range(4))
+    tri = np.concatenate([np.stack(t, axis=1) for t in ((a, b, cc), (a, cc, d))])
+    cen = tri[:, :, :2].mean(axis=1)
+    reach = float(np.linalg.norm(tri[:, :, :2] - cen[:, None, :], axis=2).max())
+    tree = cKDTree(cen)
+    kk = int(np.max(tree.query_ball_point(cen, 2.0 * reach, return_length=True)))
+    # in blocks: a long course's terrain is millions of samples, (n, k, 3) arrays of each
+    step = max(1, CELLS_UNDER // kk)
+    return np.concatenate([_under(pts[i:i + step], tri, tree, reach, kk)
+                           for i in range(0, len(pts), step)] or [np.zeros(0, bool)])
+
+
+CELLS_UNDER = 2_400_000   # points x candidates per block
+
+
+def _under(pts, tri, tree, reach, kk):
+    dist, idx = tree.query(pts[:, :2], k=kk, distance_upper_bound=reach)
+    dist, idx = dist.reshape(len(pts), kk), idx.reshape(len(pts), kk)
+    valid = np.isfinite(dist)
+    idx = np.where(valid, idx, 0)
+    p0, p1, p2 = tri[idx, 0], tri[idx, 1], tri[idx, 2]          # (n, k, 3)
+    v0, v1 = p1[..., :2] - p0[..., :2], p2[..., :2] - p0[..., :2]
+    w = pts[:, None, :2] - p0[..., :2]
+    den = v0[..., 0] * v1[..., 1] - v0[..., 1] * v1[..., 0]
+    ok = valid & (np.abs(den) > 1e-12)
+    den = np.where(ok, den, 1.0)
+    u = (w[..., 0] * v1[..., 1] - w[..., 1] * v1[..., 0]) / den
+    v = (v0[..., 0] * w[..., 1] - v0[..., 1] * w[..., 0]) / den
+    inside = ok & (u >= 0) & (v >= 0) & (u + v <= 1)
+    z = p0[..., 2] + u * (p1[..., 2] - p0[..., 2]) + v * (p2[..., 2] - p0[..., 2])
+    return (inside & (pts[:, None, 2] < z)).any(axis=1)
+
+
 def point_cloud(m, c, out, extra=(), name="course"):
     rng = np.random.default_rng(58)
-    parts = [_sample_terrain(m, c, rng), _sample_ribbon(m["road_points"], m["road_faces"],
-                                                        STEP_NEAR, rng)]
+    terrain = _sample_terrain(m, c, rng)
+    # the terrain under the ribbon is hidden by it; kept, it took the road's voxels (issue 198)
+    terrain = terrain[~_under_ribbon(terrain, m["road_points"], m["road_faces"])]
+    parts = [terrain, _sample_ribbon(m["road_points"], m["road_faces"], STEP_NEAR, rng)]
     parts += list(extra)
     pts = np.concatenate(parts)
     # one point per VOXEL cube (the trees' foliage alone would be millions of points)
